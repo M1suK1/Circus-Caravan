@@ -1,0 +1,26 @@
+{
+  "name": "circus-caravan",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/vite.mjs --host 127.0.0.1",
+    "build": "tsc -b && node tools/vite.mjs build",
+    "preview": "node tools/vite.mjs preview --host 127.0.0.1",
+    "test": "node --experimental-strip-types --test tests/s1-region-gen.test.ts tests/s1-caravan-math.test.ts tests/s1-card-adapter.test.ts tests/s1-state-act.test.ts tests/s1-store-isolation.test.ts",
+    "check:rules": "node tools/check-imports.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}

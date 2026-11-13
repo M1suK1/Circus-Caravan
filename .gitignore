@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env*
+*.pem
+test-results/
+playwright-report/
+artifacts/
+*.tsbuildinfo
+.tmp/
+# 本地文件通道的默认落点：目录要留在仓库里，玩家自己导出的存档与卡不进版本库
+data/saves/*.json
+data/cards/*.json
+# 例外：≤4MB 的十几张契约卡是有意入库的（git add -f 加进来），别把这条当漏规则删了
+
+# fix-imports.mjs 的临时输入
+tools/.tsc.txt
+
+# 叙事引擎日志：本机调试用，不进版本库
+data/llm-logs/
+# 存档镜像（v116）：本地文件通道把 kv 表写在 data/kv/（分片 + 索引），属于玩家数据
+data/kv/
+
+# 构建失败日志（start.bat 生成）
+build-error.log
