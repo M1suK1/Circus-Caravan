@@ -52,7 +52,7 @@ export function ScoutDialog({
 
   return (
     <div id="scout-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scout-modal-title">
-      <div className="modal-scroll">
+      <div className="modal-scroll vellum-sheet">
         <div className="modal-head">
           <div>
             <span className="modal-eyebrow">LLM SETTLEMENT SCOUTING · 聚落侦查卷宗</span>
@@ -73,7 +73,7 @@ export function ScoutDialog({
 
         {!poi.scouted ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="parchment-card">
+            <div className="paper-note tone-ivory pinned">
               <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 8 }}>
                 在程序化生成的区域舆图上，这座{poi.kind === 'city' ? '多格城郭' : '村寨'}目前仅标明了地理锚点。点击下方按钮将传入<strong>「{region.name}」世界观与周边地貌样本</strong>，由叙事引擎现场生成聚落名讳、末世氛围、观众偏好与暗藏线索。
               </p>
@@ -97,8 +97,8 @@ export function ScoutDialog({
             </div>
           </div>
         ) : poi.details && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="parchment-card">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="paper-note tone-ivory pinned">
               <p style={{ fontSize: 13, lineHeight: 1.75, color: 'var(--ink)' }}>{poi.details.summary}</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
                 <span className="wax-pill forest">民众希望度：{poi.details.hope}/100</span>
@@ -116,7 +116,7 @@ export function ScoutDialog({
               )}
             </div>
 
-            <div className="parchment-card">
+            <div className="paper-note tone-kraft">
               <div className="card-head">
                 <h3><Users size={15} />驻地角色卡 NPC ({npcsHere.length})</h3>
                 <small>可在「马车」页将卡库角色指派到此</small>

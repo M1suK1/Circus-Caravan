@@ -21,7 +21,7 @@ export function EngineConfigDialog({
 
   return (
     <div id="engine-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="engine-modal-title">
-      <div className="modal-scroll wide">
+      <div className="modal-scroll wide vellum-sheet">
         <div className="modal-head">
           <div>
             <span className="modal-eyebrow">LLM NARRATIVE CONSOLE PROTOTYPE · 叙事引擎控制台（前端原型）</span>
@@ -32,20 +32,20 @@ export function EngineConfigDialog({
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <button id="engine-tab-api" type="button" className={`btn sm ${tab === 'api' ? 'primary' : ''}`} onClick={() => setTab('api')}>
-            <KeyRound size={13} />模型网关与思维链
+        <div className="silk-tab-row" style={{ marginBottom: 16 }} role="tablist">
+          <button id="engine-tab-api" type="button" role="tab" aria-selected={tab === 'api'} className={`silk-tab tone-indigo ${tab === 'api' ? 'active' : ''}`} onClick={() => setTab('api')}>
+            <KeyRound size={13} /><span>模型网关与思维链</span>
           </button>
-          <button id="engine-tab-prompts" type="button" className={`btn sm ${tab === 'prompts' ? 'primary' : ''}`} onClick={() => setTab('prompts')}>
-            <FileCode2 size={13} />四大作用域预设
+          <button id="engine-tab-prompts" type="button" role="tab" aria-selected={tab === 'prompts'} className={`silk-tab ${tab === 'prompts' ? 'active' : ''}`} onClick={() => setTab('prompts')}>
+            <FileCode2 size={13} /><span>四大作用域预设</span>
           </button>
-          <button id="engine-tab-worldbook" type="button" className={`btn sm ${tab === 'worldbook' ? 'primary' : ''}`} onClick={() => setTab('worldbook')}>
-            <BookOpen size={13} />末世世界书条目
+          <button id="engine-tab-worldbook" type="button" role="tab" aria-selected={tab === 'worldbook'} className={`silk-tab tone-amber ${tab === 'worldbook' ? 'active' : ''}`} onClick={() => setTab('worldbook')}>
+            <BookOpen size={13} /><span>末世世界书条目</span>
           </button>
         </div>
 
         {tab === 'api' && (
-          <div className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="paper-note tone-ivory pinned" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', gap: 10 }}>
               <button id="provider-vertex" type="button" className={`btn sm ${provider === 'vertex' ? 'primary' : ''}`} onClick={() => setProvider('vertex')}>
                 <Cpu size={13} />Vertex AI（含思维链阶梯）
@@ -80,7 +80,7 @@ export function EngineConfigDialog({
         )}
 
         {tab === 'prompts' && (
-          <div className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="paper-note tone-kraft" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <small style={{ color: 'var(--ink-muted)' }}>作用范围：聚落侦查（`scout`）· 篝火夜谈（`campfire`）· 演出战报（`show`）· 隐居终局（`ending`）</small>
             <textarea
               id="engine-prompt-editor"
@@ -96,7 +96,7 @@ export function EngineConfigDialog({
         )}
 
         {tab === 'worldbook' && (
-          <div className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="paper-note tone-sage" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <small style={{ color: 'var(--ink-muted)' }}>常驻世界书词条会在每次侦查聚落与篝火夜谈时自动注入上下文</small>
             <textarea
               id="engine-worldbook-editor"

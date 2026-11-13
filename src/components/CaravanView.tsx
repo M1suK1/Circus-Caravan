@@ -60,7 +60,7 @@ export function CaravanView({
 
   return (
     <div className="two-col-grid">
-      <section className="parchment-card" aria-label="五节大篷车车厢配置">
+      <section className="paper-note tone-ivory pinned" aria-label="五节大篷车车厢配置">
         <div className="card-head">
           <h2><CaravanIcon size={16} />大篷车车厢编成</h2>
           <small>载重 {usedWeight(state)}/{state.caravan.maxWeight} · 席位 {usedSeats(state)}/{state.caravan.maxSeats} · 兽笼 {usedCageSlots(state)}/{state.caravan.maxCageSlots}</small>
@@ -138,7 +138,7 @@ export function CaravanView({
         </div>
       </section>
 
-      <section className="parchment-card" aria-label="马戏团演员阵容与角色卡双栖台">
+      <section className="paper-note tone-kraft" aria-label="马戏团演员阵容与角色卡双栖台">
         <div className="card-head">
           <h2><Users size={16} />剧团花名册</h2>
           <small>点击成员开启「档案 · 篝火夜谈 (LLM)」</small>
@@ -149,7 +149,7 @@ export function CaravanView({
               key={perf.id}
               id={`open-performer-${perf.id}`}
               type="button"
-              className="crew-tile"
+              className="crew-tile paper-note tone-ivory"
               onClick={() => onSelectPerformer(perf)}
             >
               <div className="crew-avatar">

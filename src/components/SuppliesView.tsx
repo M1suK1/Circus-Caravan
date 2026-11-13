@@ -46,16 +46,16 @@ export function SuppliesView({
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }} role="tablist" aria-label="物资模块切换">
-        <button id="supplies-tab-stock" type="button" role="tab" aria-selected={tab === 'supplies'} className={`btn ${tab === 'supplies' ? 'primary' : ''}`} onClick={() => setTab('supplies')}>
-          <ShoppingBag size={14} />行军辎重与补给市集
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="silk-tab-row" role="tablist" aria-label="物资模块切换">
+        <button id="supplies-tab-stock" type="button" role="tab" aria-selected={tab === 'supplies'} className={`silk-tab tone-amber ${tab === 'supplies' ? 'active' : ''}`} onClick={() => setTab('supplies')}>
+          <ShoppingBag size={13} /><span>行军辎重与补给市集</span>
         </button>
-        <button id="supplies-tab-beasts" type="button" role="tab" aria-selected={tab === 'menagerie'} className={`btn ${tab === 'menagerie' ? 'primary' : ''}`} onClick={() => setTab('menagerie')}>
-          <PawPrint size={14} />奇幻兽笼 ({usedCageSlots(state)}/{state.caravan.maxCageSlots} 格)
+        <button id="supplies-tab-beasts" type="button" role="tab" aria-selected={tab === 'menagerie'} className={`silk-tab ${tab === 'menagerie' ? 'active' : ''}`} onClick={() => setTab('menagerie')}>
+          <PawPrint size={13} /><span>奇幻兽笼 ({usedCageSlots(state)}/{state.caravan.maxCageSlots} 格)</span>
         </button>
-        <button id="supplies-tab-contracts" type="button" role="tab" aria-selected={tab === 'contracts'} className={`btn ${tab === 'contracts' ? 'primary' : ''}`} onClick={() => setTab('contracts')}>
-          <Truck size={14} />货运载重与乘客席位
+        <button id="supplies-tab-contracts" type="button" role="tab" aria-selected={tab === 'contracts'} className={`silk-tab tone-indigo ${tab === 'contracts' ? 'active' : ''}`} onClick={() => setTab('contracts')}>
+          <Truck size={13} /><span>货运载重与乘客席位</span>
         </button>
       </div>
 
@@ -64,7 +64,7 @@ export function SuppliesView({
           {supplyItems.map(({ key, name, unitCost, batch, desc, Icon }) => {
             const totalCost = unitCost * batch;
             return (
-              <article key={key} className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <article key={key} className="paper-note tone-ivory" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div className="card-head" style={{ marginBottom: 4 }}>
                   <h3><Icon size={15} />{name}</h3>
                   <span className="wax-pill amber" style={{ fontFamily: 'var(--font-data)' }}>库存 {state.supplies[key]}</span>
@@ -89,7 +89,7 @@ export function SuppliesView({
       )}
 
       {tab === 'menagerie' && (
-        <section className="parchment-card" aria-label="奇幻生物兽笼培养名录">
+        <section className="paper-note tone-kraft pinned" aria-label="奇幻生物兽笼培养名录">
           <div className="card-head">
             <h2><PawPrint size={16} />奇幻兽笼与进阶培养名录</h2>
             <small>占用 {usedCageSlots(state)} / {state.caravan.maxCageSlots} 格兽笼 · 点击生物查看多分支进阶与拍卖估值</small>
@@ -102,7 +102,7 @@ export function SuppliesView({
                   key={beast.id}
                   id={`open-beast-${beast.id}`}
                   type="button"
-                  className="crew-tile"
+                  className="crew-tile paper-note tone-ivory"
                   style={{ flexDirection: 'column', gap: 8 }}
                   onClick={() => onSelectBeast(beast)}
                 >
@@ -124,7 +124,7 @@ export function SuppliesView({
 
       {tab === 'contracts' && (
         <section className="two-col-grid" aria-label="货运与载人契约面板">
-          <div className="parchment-card">
+          <div className="paper-note tone-ivory">
             <div className="card-head">
               <h3><Truck size={15} />货舱契约 ({usedWeight(state)}/{state.caravan.maxWeight} 载重)</h3>
               <button
@@ -145,7 +145,7 @@ export function SuppliesView({
             </div>
           </div>
 
-          <div className="parchment-card">
+          <div className="paper-note tone-sage">
             <div className="card-head">
               <h3><Users size={15} />客车厢搭客 ({usedSeats(state)}/{state.caravan.maxSeats} 席位)</h3>
               <button

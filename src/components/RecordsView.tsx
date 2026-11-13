@@ -27,8 +27,8 @@ export function RecordsView({
   const retirePct = Math.min(100, Math.round((state.gold / Math.max(1, state.retirement.targetGold)) * 100));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <section className="parchment-card" aria-label="终局隐居筹备进度">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <section className="paper-note tone-kraft pinned" aria-label="终局隐居筹备进度">
         <div className="card-head">
           <h2><Award size={16} />世外隐居终局筹备台</h2>
           <span className={`wax-pill ${canRetire(state) ? 'forest' : 'amber'}`}>
@@ -55,7 +55,7 @@ export function RecordsView({
       </section>
 
       <div className="two-col-grid">
-        <section className="parchment-card" aria-label="行旅编年日志">
+        <section className="paper-note tone-ivory" aria-label="行旅编年日志">
           <div className="card-head">
             <h3><ScrollText size={15} />行旅手札编年</h3>
             <select
@@ -84,7 +84,7 @@ export function RecordsView({
           </div>
         </section>
 
-        <section className="parchment-card" aria-label="多方势力外交与残响电台">
+        <section className="paper-note tone-sage" aria-label="多方势力外交与残响电台">
           <div className="card-head">
             <h3><Flag size={15} />大陆多方势力态势</h3>
             <small>战火区域请开启熄灯潜行或绕行</small>

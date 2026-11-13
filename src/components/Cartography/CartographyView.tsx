@@ -108,42 +108,42 @@ export function CartographyView({
 
   return (
     <div className="atlas-layout">
-      <section className="parchment-card atlas-stage-card" aria-label="羊皮纸测绘地图区">
+      <section className="atlas-stage-card" aria-label="羊皮纸测绘地图区">
         <div className="atlas-toolbar">
-          <div className="zoom-tabs" role="tablist" aria-label="地图层级切换">
+          <div className="silk-tab-row" role="tablist" aria-label="地图层级切换">
             <button
               id="map-zoom-world"
               type="button"
               role="tab"
               aria-selected={zoom === 'world'}
-              className={`zoom-tab ${zoom === 'world' ? 'active' : ''}`}
+              className={`silk-tab tone-indigo ${zoom === 'world' ? 'active' : ''}`}
               onClick={() => onZoom('world')}
             >
-              <Globe size={14} />世界地图 (128×128)
+              <Globe size={13} /><span>世界地图 (128×128)</span>
             </button>
             <button
               id="map-zoom-region"
               type="button"
               role="tab"
               aria-selected={zoom === 'region'}
-              className={`zoom-tab ${zoom === 'region' ? 'active' : ''}`}
+              className={`silk-tab ${zoom === 'region' ? 'active' : ''}`}
               onClick={() => onZoom('region')}
             >
-              <Compass size={14} />区域地图 (10×放大)
+              <Compass size={13} /><span>区域地图 (10×放大)</span>
             </button>
             <button
               id="map-zoom-follow"
               type="button"
               role="tab"
               aria-selected={zoom === 'follow'}
-              className={`zoom-tab ${zoom === 'follow' ? 'active' : ''}`}
+              className={`silk-tab tone-amber ${zoom === 'follow' ? 'active' : ''}`}
               onClick={() => onZoom('follow')}
             >
-              <LocateFixed size={14} />跟随马车周边
+              <LocateFixed size={13} /><span>跟随马车周边</span>
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10 }}>
             <button
               id="map-evade-war-toggle"
               type="button"
@@ -219,7 +219,7 @@ export function CartographyView({
       </section>
 
       <aside className="atlas-sidebar" aria-label="区域手账与侦查控制">
-        <div className="parchment-card">
+        <div className="paper-note tone-kraft pinned">
           <div className="card-head">
             <h3><Trees size={15} />{region.name}</h3>
             <span className={`wax-pill ${region.dangerTier >= 4 ? 'crimson' : 'amber'}`}>危级 {region.dangerTier}/5</span>
@@ -240,7 +240,7 @@ export function CartographyView({
         </div>
 
         {currentPoi && (
-          <div className="parchment-card" style={{ borderColor: 'var(--crimson)' }}>
+          <div className="paper-note tone-ivory pinned" style={{ borderColor: 'var(--crimson)' }}>
             <div className="card-head">
               <h3><Building2 size={15} />当前驻扎地</h3>
               <span className="wax-pill crimson">{currentPoi.kind === 'city' ? `城郭 (${currentPoi.footprint.length}格)` : '村寨'}</span>
@@ -269,7 +269,7 @@ export function CartographyView({
           </div>
         )}
 
-        <div className="parchment-card">
+        <div className="paper-note tone-ivory">
           <div className="card-head">
             <h3><Footprints size={15} />视野内据点</h3>
             <small>{visiblePois.length} 处</small>
@@ -307,7 +307,7 @@ export function CartographyView({
           </div>
         </div>
 
-        <div className="parchment-card">
+        <div className="paper-note tone-sage">
           <div className="card-head">
             <h3><Compass size={15} />跨区边境关口</h3>
             <small>靠近关口 4 格内可出境</small>

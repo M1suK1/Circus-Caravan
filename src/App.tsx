@@ -138,58 +138,60 @@ export function App() {
       />
 
       <main id="main-stage" className="app-main">
-        <PageHeading
-          page={page}
-          right={
-            <button id="heading-load-btn" type="button" className="btn sm" onClick={() => void handleLoadQuick()}>
-              读回最近手稿
-            </button>
-          }
-        />
-
-        {page === 'map' && (
-          <CartographyView
-            state={state}
-            zoom={zoom}
-            onZoom={setZoom}
-            routeDraft={routeDraft}
-            onRouteDraft={setRouteDraft}
-            evadeWar={evadeWar}
-            onToggleEvadeWar={() => setEvadeWar(v => !v)}
-            onOpenScout={poi => setModal({ type: 'scout', poi })}
-            onCrossBorder={targetRegionId => {
-              const res = dispatch({ type: 'crossBorder', targetRegionId });
-              if (res.ok) setRouteDraft(null);
-            }}
-            onAssistSketchTo={handleAssistSketchTo}
+        <div id="main-stage-sheet" className="vellum-sheet">
+          <PageHeading
+            page={page}
+            right={
+              <button id="heading-load-btn" type="button" className="btn sm" onClick={() => void handleLoadQuick()}>
+                读回最近手稿
+              </button>
+            }
           />
-        )}
 
-        {page === 'caravan' && (
-          <CaravanView
-            state={state}
-            onUpgradeWagon={wagonId => dispatch({ type: 'upgradeWagon', wagonId })}
-            onRepairWagon={wagonId => dispatch({ type: 'repairWagon', wagonId })}
-            onHireCandidate={candidateId => dispatch({ type: 'hireCandidate', candidateId })}
-            onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
-            onImportCardAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
-            onPlaceCardAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
-            onNotify={notify}
-          />
-        )}
+          {page === 'map' && (
+            <CartographyView
+              state={state}
+              zoom={zoom}
+              onZoom={setZoom}
+              routeDraft={routeDraft}
+              onRouteDraft={setRouteDraft}
+              evadeWar={evadeWar}
+              onToggleEvadeWar={() => setEvadeWar(v => !v)}
+              onOpenScout={poi => setModal({ type: 'scout', poi })}
+              onCrossBorder={targetRegionId => {
+                const res = dispatch({ type: 'crossBorder', targetRegionId });
+                if (res.ok) setRouteDraft(null);
+              }}
+              onAssistSketchTo={handleAssistSketchTo}
+            />
+          )}
 
-        {page === 'supplies' && (
-          <SuppliesView
-            state={state}
-            onSelectBeast={beast => setModal({ type: 'beast', beast })}
-            onBuySupply={handleBuySupply}
-            onNotify={notify}
-          />
-        )}
+          {page === 'caravan' && (
+            <CaravanView
+              state={state}
+              onUpgradeWagon={wagonId => dispatch({ type: 'upgradeWagon', wagonId })}
+              onRepairWagon={wagonId => dispatch({ type: 'repairWagon', wagonId })}
+              onHireCandidate={candidateId => dispatch({ type: 'hireCandidate', candidateId })}
+              onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
+              onImportCardAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
+              onPlaceCardAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
+              onNotify={notify}
+            />
+          )}
 
-        {page === 'records' && (
-          <RecordsView state={state} onNotify={notify} />
-        )}
+          {page === 'supplies' && (
+            <SuppliesView
+              state={state}
+              onSelectBeast={beast => setModal({ type: 'beast', beast })}
+              onBuySupply={handleBuySupply}
+              onNotify={notify}
+            />
+          )}
+
+          {page === 'records' && (
+            <RecordsView state={state} onNotify={notify} />
+          )}
+        </div>
       </main>
 
       <HelmBar

@@ -15,7 +15,7 @@ export function BeastDialog({
 
   return (
     <div id="beast-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="beast-modal-title">
-      <div className="modal-scroll">
+      <div className="modal-scroll vellum-sheet">
         <div className="modal-head">
           <div>
             <span className="modal-eyebrow">MENAGERIE & EVOLUTION · 奇幻生物培养与进阶树</span>
@@ -26,7 +26,7 @@ export function BeastDialog({
           </button>
         </div>
 
-        <div className="parchment-card" style={{ marginBottom: 14 }}>
+        <div className="paper-note tone-ivory pinned" style={{ marginBottom: 18 }}>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 10 }}>{species?.description}</p>
           <div className="stat-grid-2">
             <div className="metric-box"><small>观赏演出度</small><b>{beast.appeal}</b></div>
@@ -47,7 +47,7 @@ export function BeastDialog({
           </div>
         </div>
 
-        <div className="parchment-card">
+        <div className="paper-note tone-kraft">
           <div className="card-head">
             <h3><GitBranch size={15} />多分支进阶进化路线</h3>
             <small>满足等级、驯服度与催化物即可分支蜕变</small>

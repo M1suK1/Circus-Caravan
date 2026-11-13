@@ -4,7 +4,7 @@ import type { GameLog } from '../../types.ts';
 export function GuideDialog({ onClose }: { onClose: () => void }) {
   return (
     <div id="guide-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guide-modal-title">
-      <div className="modal-scroll">
+      <div className="modal-scroll vellum-sheet">
         <div className="modal-head">
           <div>
             <span className="modal-eyebrow">EXPEDITION HANDBOOK · 巡游测绘手记</span>
@@ -15,8 +15,8 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
-          <div className="parchment-card">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13 }}>
+          <div className="paper-note tone-ivory pinned">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <Compass size={15} style={{ color: 'var(--crimson)' }} />三级地图与按需懒加载
             </h3>
@@ -25,7 +25,7 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          <div className="parchment-card">
+          <div className="paper-note tone-kraft">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <MapPin size={15} style={{ color: 'var(--amber)' }} />手动划线与迷雾视野
             </h3>
@@ -34,7 +34,7 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          <div className="parchment-card">
+          <div className="paper-note tone-sage">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <BookOpen size={15} style={{ color: 'var(--forest)' }} />先定位、侦查后由 LLM 详述
             </h3>

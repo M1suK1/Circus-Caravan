@@ -22,11 +22,11 @@ import {
 } from 'lucide-react';
 import type { AppPage, CircusState, RouteEvaluation } from '../types.ts';
 
-const NAV_ITEMS: { id: AppPage; label: string; Icon: typeof MapIcon }[] = [
-  { id: 'map', label: '地图', Icon: MapIcon },
-  { id: 'caravan', label: '马车', Icon: CaravanIcon },
-  { id: 'supplies', label: '物资', Icon: Package },
-  { id: 'records', label: '记录', Icon: ScrollText },
+const NAV_ITEMS: { id: AppPage; label: string; tone: 'crimson' | 'forest' | 'amber' | 'indigo'; Icon: typeof MapIcon }[] = [
+  { id: 'map', label: '地图', tone: 'crimson', Icon: MapIcon },
+  { id: 'caravan', label: '马车', tone: 'forest', Icon: CaravanIcon },
+  { id: 'supplies', label: '物资', tone: 'amber', Icon: Package },
+  { id: 'records', label: '记录', tone: 'indigo', Icon: ScrollText },
 ];
 
 const PAGE_HEADINGS: Record<AppPage, { kicker: string; title: string; subtitle: string; code: string }> = {
@@ -89,17 +89,20 @@ export function SideRail({
       </button>
       <div className="rail-rule" />
       <nav aria-label="核心模块切换">
-        {NAV_ITEMS.map(({ id, label, Icon }) => (
+        {NAV_ITEMS.map(({ id, label, tone, Icon }) => (
           <button
             key={id}
             id={`nav-${id}`}
             type="button"
             aria-current={page === id ? 'page' : undefined}
-            className={`nav-item ${page === id ? 'active' : ''}`}
+            className={`silk-bookmark tone-${tone} ${page === id ? 'active' : ''}`}
             onClick={() => onPage(id)}
           >
-            <Icon size={20} strokeWidth={1.7} />
-            <span>{label}</span>
+            <span className="silk-bookmark-ribbon" aria-hidden="true" />
+            <span className="silk-bookmark-content">
+              <Icon size={17} strokeWidth={1.85} />
+              <span>{label}</span>
+            </span>
           </button>
         ))}
       </nav>

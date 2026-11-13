@@ -45,7 +45,7 @@ export function PerformerDialog({
 
   return (
     <div id="performer-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="performer-modal-title">
-      <div className="modal-scroll wide">
+      <div className="modal-scroll wide vellum-sheet">
         <div className="modal-head">
           <div>
             <span className="modal-eyebrow">TROUPE DOSSIER & LLM CAMPFIRE · 成员档案与夜谈原型</span>
@@ -57,7 +57,7 @@ export function PerformerDialog({
         </div>
 
         <div className="two-col-grid">
-          <div className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="paper-note tone-ivory pinned" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', gap: 14 }}>
               <div style={{ width: 120, height: 156, borderRadius: 8, overflow: 'hidden', background: '#171219', border: '1px solid var(--umber-strong)', flexShrink: 0 }}>
                 <GirlPortrait girl={performer} variant="full" />
@@ -91,23 +91,27 @@ export function PerformerDialog({
             </div>
           </div>
 
-          <div className="parchment-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div className="paper-note tone-kraft" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="silk-tab-row" role="tablist">
               <button
                 id="perf-tab-dialogue"
                 type="button"
-                className={`btn sm ${tab === 'dialogue' ? 'primary' : ''}`}
+                role="tab"
+                aria-selected={tab === 'dialogue'}
+                className={`silk-tab ${tab === 'dialogue' ? 'active' : ''}`}
                 onClick={() => setTab('dialogue')}
               >
-                <MessageCircle size={13} />LLM 篝火夜谈窗
+                <MessageCircle size={13} /><span>LLM 篝火夜谈窗</span>
               </button>
               <button
                 id="perf-tab-vn"
                 type="button"
-                className={`btn sm ${tab === 'vn' ? 'primary' : ''}`}
+                role="tab"
+                aria-selected={tab === 'vn'}
+                className={`silk-tab tone-indigo ${tab === 'vn' ? 'active' : ''}`}
                 onClick={() => setTab('vn')}
               >
-                <Clapperboard size={13} />VN 舞台预览
+                <Clapperboard size={13} /><span>VN 舞台预览</span>
               </button>
             </div>
 
