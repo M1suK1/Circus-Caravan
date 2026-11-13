@@ -1,54 +1,30 @@
 /**
- * 9 大奇幻地区小地图程序化生成器（纯函数）。
- *
- * 规则：
- *  1. 每个大区尺寸为 18 × 12 网格，四周必为 `boundary`（区域边界），并在接壤方向生成 `border_gate`。
- *  2. 内部按照大区生态权重随机铺设荒地、沼泽、密林、山脉、水体、废墟与战区。
- *  3. 随机选择若干坐标安置城市（`city`）与村庄（`village`），并用 A* 寻路连出必通道路（`road`）。
- *  4. 聚落初生时仅确定位置与占位符（`scouted: false, details: undefined`），等待玩家侦查后再由 LLM 详述。
+ * 10× 区域小地图程序化生成器（继承世界地图形状、河湖位置，生成 1–3 座多格城市与主要道路）。
  */
 import { REGION_CATALOG, REGION_IDS, type RegionProfile } from '../content/regions.ts';
+import {
+  createRng,
+  decodeBytes,
+  encodeBytes,
+  hashInt,
+  TERRAIN_ORDER,
+  TERRAIN_TO_CODE,
+  valueNoise2d,
+} from './worldGen.ts';
 import type {
   Direction,
-  FogLevel,
   RegionGate,
   RegionId,
   RegionMap,
   SettlementDetails,
   SettlementPoi,
-  TerrainTile,
   TerrainType,
+  WorldMapData,
 } from '../types.ts';
 
-export const REGION_WIDTH = 18;
-export const REGION_HEIGHT = 12;
+const SCALE = 10;
 
-export function hashInt(text: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function createRng(seed: number): () => number {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export function pickRandomSpawnRegion(seed: number, preferred?: RegionId): RegionId {
-  if (preferred && REGION_CATALOG[preferred]) return preferred;
-  const rng = createRng(hashInt(`spawn:${seed}`));
-  return REGION_IDS[Math.floor(rng() * REGION_IDS.length)] ?? 'empire_heart';
-}
-
-function sampleTerrain(weights: Partial<Record<TerrainType, number>>, roll: number): TerrainType {
+function sampleEcoTerrain(weights: Partial<Record<TerrainType, number>>, roll: number): TerrainType {
   const entries = Object.entries(weights) as [TerrainType, number][];
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let acc = roll * total;
@@ -59,147 +35,303 @@ function sampleTerrain(weights: Partial<Record<TerrainType, number>>, roll: numb
   return 'wasteland';
 }
 
-function gateCoord(direction: Direction, rng: () => number): { x: number; y: number } {
-  if (direction === 'north') return { x: 3 + Math.floor(rng() * (REGION_WIDTH - 6)), y: 0 };
-  if (direction === 'south') return { x: 3 + Math.floor(rng() * (REGION_WIDTH - 6)), y: REGION_HEIGHT - 1 };
-  if (direction === 'west') return { x: 0, y: 2 + Math.floor(rng() * (REGION_HEIGHT - 4)) };
-  return { x: REGION_WIDTH - 1, y: 2 + Math.floor(rng() * (REGION_HEIGHT - 4)) };
+function isPassableBase(t: TerrainType): boolean {
+  return t !== 'outside' && t !== 'ocean' && t !== 'mountain' && t !== 'lake' && t !== 'river';
 }
 
-function gateInsideAnchor(gate: RegionGate): { x: number; y: number } {
-  if (gate.direction === 'north') return { x: gate.x, y: 1 };
-  if (gate.direction === 'south') return { x: gate.x, y: REGION_HEIGHT - 2 };
-  if (gate.direction === 'west') return { x: 1, y: gate.y };
-  return { x: REGION_WIDTH - 2, y: gate.y };
-}
-
-function carveRoad(
-  tiles: TerrainTile[],
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  rng: () => number,
-): void {
-  let cx = from.x;
-  let cy = from.y;
-  const maxSteps = REGION_WIDTH * REGION_HEIGHT;
-  for (let step = 0; step < maxSteps && (cx !== to.x || cy !== to.y); step += 1) {
-    const dx = to.x - cx;
-    const dy = to.y - cy;
-    const moveX = dx !== 0 && (dy === 0 || rng() < 0.55);
-    if (moveX) cx += Math.sign(dx);
-    else if (dy !== 0) cy += Math.sign(dy);
-    const tile = tiles[cy * REGION_WIDTH + cx]!;
-    if (tile.terrain !== 'city' && tile.terrain !== 'village' && tile.terrain !== 'border_gate' && tile.terrain !== 'boundary') {
-      tile.terrain = 'road';
-    }
-  }
-}
-
-export function revealFogAround(map: RegionMap, cx: number, cy: number, radius = 2, fog: FogLevel = 'charted'): void {
-  for (let dy = -radius; dy <= radius; dy += 1) {
-    for (let dx = -radius; dx <= radius; dx += 1) {
-      if (Math.abs(dx) + Math.abs(dy) > radius + 1) continue;
-      const nx = cx + dx;
-      const ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
-      const tile = map.tiles[ny * map.width + nx]!;
-      if (fog === 'charted' || tile.fog === 'unseen') tile.fog = fog;
-    }
-  }
-}
-
-export function generateRegionMap(regionId: RegionId, worldSeed: number): RegionMap {
+export function generateRegionMap(world: WorldMapData, regionId: RegionId, worldSeed: number): RegionMap {
   const profile = REGION_CATALOG[regionId];
-  const seed = hashInt(`${worldSeed}:${regionId}`);
-  const rng = createRng(seed);
-  const tiles: TerrainTile[] = [];
+  const bounds = world.regionBounds[regionId];
+  const width = (bounds.maxX - bounds.minX + 1) * SCALE;
+  const height = (bounds.maxY - bounds.minY + 1) * SCALE;
+  const worldOffsetX = bounds.minX * SCALE;
+  const worldOffsetY = bounds.minY * SCALE;
+  const regionSeed = hashInt(`${worldSeed}:region:${regionId}`);
+  const rng = createRng(regionSeed);
 
-  for (let y = 0; y < REGION_HEIGHT; y += 1) {
-    for (let x = 0; x < REGION_WIDTH; x += 1) {
-      const isBorder = x === 0 || y === 0 || x === REGION_WIDTH - 1 || y === REGION_HEIGHT - 1;
-      const terrain: TerrainType = isBorder ? 'boundary' : sampleTerrain(profile.terrainWeights, rng());
-      tiles.push({ x, y, terrain, fog: 'unseen' });
+  const worldTerrain = decodeBytes(world.terrainBase64, world.width * world.height);
+  const worldRegions = decodeBytes(world.regionGridBase64, world.width * world.height);
+  const regionIndex = REGION_IDS.indexOf(regionId);
+  const terrain = new Uint8Array(width * height);
+
+  // 1. 按 10× 等比映射世界地图不规则轮廓、海洋、湖泊与生态地形
+  for (let ly = 0; ly < height; ly += 1) {
+    const wy = bounds.minY + Math.floor(ly / SCALE);
+    for (let lx = 0; lx < width; lx += 1) {
+      const wx = bounds.minX + Math.floor(lx / SCALE);
+      const wIdx = wy * world.width + wx;
+      const wReg = worldRegions[wIdx]!;
+      const wTer = TERRAIN_ORDER[worldTerrain[wIdx]!] ?? 'ocean';
+      const lIdx = ly * width + lx;
+
+      if (wTer === 'ocean') {
+        terrain[lIdx] = TERRAIN_TO_CODE.ocean;
+        continue;
+      }
+      if (wReg !== regionIndex) {
+        terrain[lIdx] = TERRAIN_TO_CODE.outside;
+        continue;
+      }
+      if (wTer === 'lake') {
+        terrain[lIdx] = TERRAIN_TO_CODE.lake;
+        continue;
+      }
+      if (wTer === 'river') {
+        terrain[lIdx] = TERRAIN_TO_CODE.river;
+        continue;
+      }
+      if (wTer === 'coast') {
+        terrain[lIdx] = TERRAIN_TO_CODE.coast;
+        continue;
+      }
+
+      const n = valueNoise2d(lx, ly, 9, regionSeed + 41);
+      if (wTer === 'mountain' && n > 0.35) {
+        terrain[lIdx] = TERRAIN_TO_CODE.mountain;
+      } else {
+        const picked = sampleEcoTerrain(profile.terrainWeights, n);
+        terrain[lIdx] = TERRAIN_TO_CODE[picked === 'mountain' && n < 0.72 ? 'wasteland' : picked];
+      }
     }
   }
 
-  // 安放区域边界门
-  const gates: RegionGate[] = profile.neighbors.map(n => {
-    const coord = gateCoord(n.direction, rng);
-    const tile = tiles[coord.y * REGION_WIDTH + coord.x]!;
-    tile.terrain = 'border_gate';
-    tile.gateToRegionId = n.targetRegionId;
-    tile.fog = 'rumored';
-    return { direction: n.direction, targetRegionId: n.targetRegionId, x: coord.x, y: coord.y };
-  });
+  // 2. 精确映射世界河流线段并在 10× 缩放廊道中平滑加宽（保证河道连贯且符合世界地图位置）
+  for (const river of world.rivers) {
+    for (let i = 1; i < river.points.length; i += 1) {
+      const p0 = river.points[i - 1]!;
+      const p1 = river.points[i]!;
+      const x0 = (p0.x + 0.5) * SCALE - worldOffsetX;
+      const y0 = (p0.y + 0.5) * SCALE - worldOffsetY;
+      const x1 = (p1.x + 0.5) * SCALE - worldOffsetX;
+      const y1 = (p1.y + 0.5) * SCALE - worldOffsetY;
+      const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+      for (let s = 0; s <= steps; s += 1) {
+        const t = s / steps;
+        const cx = Math.round(x0 + (x1 - x0) * t);
+        const cy = Math.round(y0 + (y1 - y0) * t);
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const idx = ny * width + nx;
+            const cur = TERRAIN_ORDER[terrain[idx]!];
+            if (cur !== 'outside' && cur !== 'ocean' && cur !== 'lake') {
+              terrain[idx] = TERRAIN_TO_CODE.river;
+            }
+          }
+        }
+      }
+    }
+  }
 
-  // 安置城市与村庄位置（只定坐标，不预生成详情）
+  // 3. 收集所有可用陆地格
+  const landCells: { x: number; y: number }[] = [];
+  for (let y = 3; y < height - 3; y += 1) {
+    for (let x = 3; x < width - 3; x += 1) {
+      const t = TERRAIN_ORDER[terrain[y * width + x]!]!;
+      if (isPassableBase(t)) landCells.push({ x, y });
+    }
+  }
+
+  // 4. 在相邻大区接触边缘开设跨区出境关口（border_gate）
+  const gates: RegionGate[] = [];
+  for (const neighbor of profile.neighbors) {
+    const targetIdx = REGION_IDS.indexOf(neighbor.targetRegionId);
+    const candidates: { x: number; y: number }[] = [];
+    for (let ly = 2; ly < height - 2; ly += 1) {
+      for (let lx = 2; lx < width - 2; lx += 1) {
+        const cur = TERRAIN_ORDER[terrain[ly * width + lx]!]!;
+        if (!isPassableBase(cur)) continue;
+        const wx = bounds.minX + Math.floor(lx / SCALE);
+        const wy = bounds.minY + Math.floor(ly / SCALE);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nwx = wx + dx;
+          const nwy = wy + dy;
+          if (nwx >= 0 && nwy >= 0 && nwx < world.width && nwy < world.height) {
+            if (worldRegions[nwy * world.width + nwx] === targetIdx) {
+              candidates.push({ x: lx, y: ly });
+              break;
+            }
+          }
+        }
+      }
+    }
+    const chosen = candidates.length
+      ? candidates[Math.floor(candidates.length * 0.5)]!
+      : landCells[Math.floor(rng() * Math.max(1, landCells.length))] ?? { x: Math.floor(width / 2), y: Math.floor(height / 2) };
+    terrain[chosen.y * width + chosen.x] = TERRAIN_TO_CODE.border_gate;
+    gates.push({ direction: neighbor.direction as Direction, targetRegionId: neighbor.targetRegionId, x: chosen.x, y: chosen.y });
+  }
+
+  // 5. 生成 1–3 座多格占地城市 + 2–4 座村庄（只定位置与占地，details 为 undefined）
   const pois: Record<string, SettlementPoi> = {};
-  const taken = new Set<string>();
-  const wantedKinds: ('city' | 'village')[] = [
-    ...Array.from({ length: profile.cityCount }, () => 'city' as const),
-    ...Array.from({ length: profile.villageCount }, () => 'village' as const),
-  ];
+  const cityCount = Math.min(3, Math.max(1, profile.cityCount));
+  const villageCount = Math.min(4, Math.max(2, profile.villageCount));
+  const poiAnchorList: { x: number; y: number; kind: 'city' | 'village' }[] = [];
 
-  const tooClose = (x: number, y: number) =>
-    Object.values(pois).some(p => Math.abs(p.x - x) + Math.abs(p.y - y) < 4);
+  const farEnough = (x: number, y: number, minD: number) =>
+    poiAnchorList.every(p => Math.hypot(p.x - x, p.y - y) >= minD);
 
-  wantedKinds.forEach((kind, idx) => {
-    let px = 2 + Math.floor(rng() * (REGION_WIDTH - 4));
-    let py = 2 + Math.floor(rng() * (REGION_HEIGHT - 4));
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const candX = 2 + Math.floor(rng() * (REGION_WIDTH - 4));
-      const candY = 2 + Math.floor(rng() * (REGION_HEIGHT - 4));
-      if (!taken.has(`${candX},${candY}`) && !tooClose(candX, candY)) {
-        px = candX;
-        py = candY;
+  const canPlaceBlock = (cx: number, cy: number, half: number) => {
+    for (let dy = -half; dy <= half; dy += 1) {
+      for (let dx = -half; dx <= half; dx += 1) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 3 || ny < 3 || nx >= width - 3 || ny >= height - 3) return false;
+        const t = TERRAIN_ORDER[terrain[ny * width + nx]!]!;
+        if (!isPassableBase(t) && t !== 'coast') return false;
+      }
+    }
+    return true;
+  };
+
+  for (let i = 0; i < cityCount; i += 1) {
+    let placed: { x: number; y: number } | undefined;
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const cand = landCells[Math.floor(rng() * landCells.length)];
+      if (!cand) break;
+      if (farEnough(cand.x, cand.y, Math.min(width, height) * 0.22) && canPlaceBlock(cand.x, cand.y, 2)) {
+        placed = cand;
         break;
       }
     }
-    taken.add(`${px},${py}`);
-    const id = `${regionId}-${kind}-${idx + 1}`;
-    const tile = tiles[py * REGION_WIDTH + px]!;
-    tile.terrain = kind;
-    tile.poiId = id;
-    tile.fog = 'rumored';
+    if (!placed && landCells.length) {
+      for (const cand of landCells) {
+        if (farEnough(cand.x, cand.y, 12) && canPlaceBlock(cand.x, cand.y, 1)) {
+          placed = cand;
+          break;
+        }
+      }
+    }
+    if (!placed) continue;
+    poiAnchorList.push({ x: placed.x, y: placed.y, kind: 'city' });
+    const half = canPlaceBlock(placed.x, placed.y, 2) ? 2 : 1;
+    const footprint: { x: number; y: number }[] = [];
+    for (let dy = -half; dy <= half; dy += 1) {
+      for (let dx = -half; dx <= half; dx += 1) {
+        // 切掉四个角形成略微有机多边形城郭（仍然 >= 9~21 格）
+        if (half === 2 && Math.abs(dx) === 2 && Math.abs(dy) === 2) continue;
+        const fx = placed.x + dx;
+        const fy = placed.y + dy;
+        terrain[fy * width + fx] = TERRAIN_TO_CODE.city;
+        footprint.push({ x: fx, y: fy });
+      }
+    }
+    const id = `${regionId}-city-${i + 1}`;
     pois[id] = {
       id,
       regionId,
-      kind,
-      x: px,
-      y: py,
+      kind: 'city',
+      x: placed.x,
+      y: placed.y,
+      footprint,
       scouted: false,
-      placeholderName: kind === 'city' ? `迷雾城郭轮廓 #${idx + 1}` : `远方微光村落 #${idx + 1}`,
+      placeholderName: `未侦查城郭遗址 #${i + 1}`,
       visitedCount: 0,
     };
-  });
+  }
 
-  // 连接所有聚落 + 各出境口内部的锚点，确保地图 100% 道路可达
-  const poiList = Object.values(pois);
-  for (let i = 1; i < poiList.length; i += 1) {
-    carveRoad(tiles, poiList[i - 1]!, poiList[i]!, rng);
+  for (let i = 0; i < villageCount; i += 1) {
+    let placed: { x: number; y: number } | undefined;
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      const cand = landCells[Math.floor(rng() * landCells.length)];
+      if (!cand) break;
+      if (farEnough(cand.x, cand.y, 14) && canPlaceBlock(cand.x, cand.y, 1)) {
+        placed = cand;
+        break;
+      }
+    }
+    if (!placed) continue;
+    poiAnchorList.push({ x: placed.x, y: placed.y, kind: 'village' });
+    const footprint = [{ x: placed.x, y: placed.y }, { x: placed.x + 1, y: placed.y }];
+    for (const cell of footprint) terrain[cell.y * width + cell.x] = TERRAIN_TO_CODE.village;
+    const id = `${regionId}-village-${i + 1}`;
+    pois[id] = {
+      id,
+      regionId,
+      kind: 'village',
+      x: placed.x,
+      y: placed.y,
+      footprint,
+      scouted: false,
+      placeholderName: `远方风灯聚落 #${i + 1}`,
+      visitedCount: 0,
+    };
+  }
+
+  // 6. 主要道路连通所有城市、村庄与边界关口（跨河自动建桥 bridge）
+  const carveMajorRoad = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    let cx = from.x;
+    let cy = from.y;
+    const steps = width * 2 + height * 2;
+    for (let s = 0; s < steps && (cx !== to.x || cy !== to.y); s += 1) {
+      const dx = to.x - cx;
+      const dy = to.y - cy;
+      if (dx !== 0 && (dy === 0 || rng() < 0.56)) cx += Math.sign(dx);
+      else if (dy !== 0) cy += Math.sign(dy);
+      const idx = cy * width + cx;
+      const cur = TERRAIN_ORDER[terrain[idx]!]!;
+      if (cur === 'city' || cur === 'village' || cur === 'border_gate' || cur === 'outside' || cur === 'ocean') continue;
+      if (cur === 'river' || cur === 'lake') {
+        terrain[idx] = TERRAIN_TO_CODE.bridge;
+      } else {
+        terrain[idx] = TERRAIN_TO_CODE.road;
+      }
+    }
+  };
+
+  const allPois = Object.values(pois);
+  for (let i = 1; i < allPois.length; i += 1) {
+    carveMajorRoad(allPois[i - 1]!, allPois[i]!);
   }
   for (const gate of gates) {
-    const anchor = gateInsideAnchor(gate);
-    const nearest = [...poiList].sort(
-      (a, b) => Math.abs(a.x - anchor.x) + Math.abs(a.y - anchor.y) - (Math.abs(b.x - anchor.x) + Math.abs(b.y - anchor.y)),
+    const nearest = [...allPois].sort(
+      (a, b) => Math.hypot(a.x - gate.x, a.y - gate.y) - Math.hypot(b.x - gate.x, b.y - gate.y),
     )[0];
-    if (nearest) carveRoad(tiles, nearest, anchor, rng);
-    const anchorTile = tiles[anchor.y * REGION_WIDTH + anchor.x]!;
-    if (anchorTile.terrain === 'mountain' || anchorTile.terrain === 'water') anchorTile.terrain = 'road';
+    if (nearest) carveMajorRoad(nearest, gate);
   }
 
-  return { regionId, width: REGION_WIDTH, height: REGION_HEIGHT, seed, gates, tiles, pois };
+  const exploredMask = new Uint8Array(Math.ceil((width * height) / 8));
+
+  return {
+    regionId,
+    scale: 10,
+    worldOffsetX,
+    worldOffsetY,
+    width,
+    height,
+    seed: regionSeed,
+    terrainBase64: encodeBytes(terrain),
+    exploredMaskBase64: encodeBytes(exploredMask),
+    gates,
+    pois,
+  };
+}
+
+const REGION_TERRAIN_CACHE = new WeakMap<RegionMap, { str: string; arr: Uint8Array }>();
+
+export function regionTerrainArray(map: RegionMap): Uint8Array {
+  const cached = REGION_TERRAIN_CACHE.get(map);
+  if (cached && cached.str === map.terrainBase64) return cached.arr;
+  const arr = decodeBytes(map.terrainBase64, map.width * map.height);
+  REGION_TERRAIN_CACHE.set(map, { str: map.terrainBase64, arr });
+  return arr;
+}
+
+export function regionTerrainAt(map: RegionMap, x: number, y: number): TerrainType {
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return 'outside';
+  const arr = regionTerrainArray(map);
+  return TERRAIN_ORDER[arr[y * map.width + x]!] ?? 'outside';
 }
 
 export function surroundingTerrainsOf(map: RegionMap, x: number, y: number): TerrainType[] {
   const out: TerrainType[] = [];
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
+  for (let dy = -3; dy <= 3; dy += 1) {
+    for (let dx = -3; dx <= 3; dx += 1) {
       if (dx === 0 && dy === 0) continue;
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
-      out.push(map.tiles[ny * map.width + nx]!.terrain);
+      const t = regionTerrainAt(map, x + dx, y + dy);
+      if (t !== 'outside') out.push(t);
     }
   }
   return out;
@@ -221,17 +353,24 @@ export function fallbackSettlementDetails(
     ? CITY_SUFFIXES[Math.floor(rng() * CITY_SUFFIXES.length)]!
     : VILLAGE_SUFFIXES[Math.floor(rng() * VILLAGE_SUFFIXES.length)]!;
   const hasSwamp = surroundings.includes('swamp');
+  const hasRiver = surroundings.includes('river') || surroundings.includes('lake');
   const hasWar = surroundings.includes('warzone');
-  const trait = hasSwamp ? '沼雾潮湿·修车费高' : hasWar ? '战备戒严·口粮紧缺' : '路过商旅·盼望夜戏';
+  const trait = hasWar
+    ? '战备戒严·粮草溢价'
+    : hasSwamp
+      ? '沼雾潮湿·修车费高'
+      : hasRiver
+        ? '临河渡口·水路客运多'
+        : '商路残站·盼望夜戏';
 
   return {
     name: `${prefix}${suffix}`,
-    summary: `坐落在${region.name}一隅的${poi.kind === 'city' ? '残破城邦' : '孤立村落'}。虽被废土与余波包围，酒馆和广场的油灯仍顽强亮着，人们渴望能暂时忘记末日的一场马戏。`,
+    summary: `坐落在${region.name}一隅的${poi.kind === 'city' ? '多街区残破城邦' : '孤立村寨'}。虽四周余波未散，广场与酒馆的风灯仍在摇曳，民众翘首期盼一场能忘却苦难的马戏夜演。`,
     hope: Math.max(15, 55 - region.dangerTier * 7 + Math.floor(rng() * 15)),
     ownerFaction: region.dominantFaction,
     preferredActs: [...region.preferredActs],
     marketTraits: [trait],
-    rumorLead: `听说邻近区域仍有未熄灭的风灯商路，但边界处近期巡逻频繁。`,
+    rumorLead: '斥候打听到邻近河道桥梁尚可通行，但前方商路尽头偶有军阀盘查。',
     detailSource: 'fallback',
     npcIds: [],
   };

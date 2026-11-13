@@ -8,14 +8,14 @@ import {
   applyUpgradeWagon,
 } from './crewOps.ts';
 import { createInitialState } from './state.ts';
-import { applyCrossBorder, applyMoveInRegion, applyScoutSettlement } from './travelOps.ts';
+import { applyCrossBorder, applyExecuteRoute, applyScoutSettlement } from './travelOps.ts';
 
 export function act(state: CircusState, action: GameAction): ActionResult {
   switch (action.type) {
     case 'newGame':
       return { state: createInitialState({ seed: action.seed, spawnRegionId: action.spawnRegionId }), ok: true };
-    case 'moveInRegion':
-      return applyMoveInRegion(state, action);
+    case 'executeRoute':
+      return applyExecuteRoute(state, action);
     case 'scoutSettlement':
       return applyScoutSettlement(state, action);
     case 'crossBorder':

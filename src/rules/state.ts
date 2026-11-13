@@ -4,10 +4,10 @@ import { computeCaravanCapacity } from '../domain/caravanMath.ts';
 import {
   fallbackSettlementDetails,
   generateRegionMap,
-  pickRandomSpawnRegion,
-  revealFogAround,
   surroundingTerrainsOf,
 } from '../domain/regionGen.ts';
+import { CARAVAN_VISION_RADIUS, revealCircleInMask } from '../domain/routeDraw.ts';
+import { generateWorldMap, pickRandomSpawnRegion } from '../domain/worldGen.ts';
 import type { CircusState, Performer, RecruitCandidate, RegionId, Wagon } from '../types.ts';
 
 function initialWagons(): Wagon[] {
@@ -38,7 +38,7 @@ function starterPerformers(): Performer[] {
       morale: 80,
       bond: 50,
       wagePerDay: 25,
-      color: '#f4b860',
+      color: '#b87324',
       quote: '就算外面在下灰雨，帐篷里的火圈也要转得像太阳。',
       goal: '存够钱，和大家一起去没有炮火的山谷建真正的剧场。',
       appearance: '琥珀短发，袖口缝着旧红缎带',
@@ -67,7 +67,7 @@ function starterPerformers(): Performer[] {
       morale: 76,
       bond: 45,
       wagePerDay: 25,
-      color: '#8fd3c7',
+      color: '#3b684b',
       quote: '荒原上的小家伙们不是怪物，只是和我们一样被吓坏了。',
       goal: '照料每一头进笼的奇幻生物，绝不轻易把同伴当牲口贱卖。',
       appearance: '戴着草编护腕与骨哨',
@@ -92,7 +92,7 @@ function starterRecruits(): RecruitCandidate[] {
       role: 'clown',
       hireCost: 260,
       wagePerDay: 22,
-      color: '#e88d72',
+      color: '#a63429',
       quote: '越是快塌了的镇子，越需要有人故意摔进泥坑里逗大伙儿笑。',
       personality: '用荒诞玩笑掩盖悲观的老练艺人',
       stats: { magic: 52, insight: 68, agility: 74, empathy: 82 },
@@ -106,7 +106,7 @@ function starterRecruits(): RecruitCandidate[] {
       role: 'scout',
       hireCost: 340,
       wagePerDay: 28,
-      color: '#9aa8f8',
+      color: '#345e7d',
       quote: '只要多留一只眼睛看边界的烟柱，整团就能少踩三处交火地雷。',
       personality: '寡言严谨的地图测绘手',
       stats: { magic: 50, insight: 88, agility: 84, empathy: 60 },
@@ -118,11 +118,12 @@ function starterRecruits(): RecruitCandidate[] {
 
 export function createInitialState(options: { seed?: number; spawnRegionId?: RegionId } = {}): CircusState {
   const seed = options.seed ?? Math.floor(Date.now() % 1_000_000) + 1;
+  const worldMap = generateWorldMap(seed);
   const spawnRegionId = pickRandomSpawnRegion(seed, options.spawnRegionId);
   const regions = createInitialMacroRegions();
 
-  // 严格懒加载：开局仅生成当前出生大区小地图，其余 8 区保留 map: undefined
-  const startMap = generateRegionMap(spawnRegionId, seed);
+  // 严格懒加载：开局仅生成当前出生大区 10× 小地图，其余 8 区 map 为 undefined
+  const startMap = generateRegionMap(worldMap, spawnRegionId, seed);
   const pois = Object.values(startMap.pois);
   const startPoi = pois.find(p => p.kind === 'village') ?? pois[0]!;
   startPoi.scouted = true;
@@ -132,23 +133,23 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
     surroundingTerrainsOf(startMap, startPoi.x, startPoi.y),
     seed,
   );
-  revealFogAround(startMap, startPoi.x, startPoi.y, 2, 'charted');
+  revealCircleInMask(startMap, startPoi.x, startPoi.y, CARAVAN_VISION_RADIUS);
   regions[spawnRegionId].map = startMap;
 
   const wagons = initialWagons();
   const capacity = computeCaravanCapacity(wagons);
 
   return {
-    version: 1,
+    version: 2,
     day: 1,
     timeSlot: 'dawn',
     phase: 'camp',
     gold: 1600,
     supplies: {
-      rations: 24,
-      fodder: 10,
-      fuel: 18,
-      spareParts: 6,
+      rations: 36,
+      fodder: 12,
+      fuel: 28,
+      spareParts: 8,
       tamingNets: 4,
       props: 8,
     },
@@ -156,14 +157,29 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
       name: '微光风灯马戏团',
       wagons,
       ...capacity,
-      morale: 75,
-      fame: 10,
+      morale: 78,
+      fame: 12,
       plannedPath: [],
     },
     performers: starterPerformers(),
     worldNpcs: [],
     recruitPool: starterRecruits(),
-    beasts: [],
+    beasts: [
+      {
+        id: 'beast-starter-fox',
+        speciesId: 'ember_fox_pup',
+        nickname: '小火星',
+        stage: 1,
+        level: 2,
+        exp: 40,
+        tameness: 62,
+        hunger: 85,
+        appeal: 42,
+        combatPower: 20,
+        talents: [{ id: 'tal-hoop', name: '钻火圈老手', effect: '杂技火演票房 +15%', value: 15 }],
+        pairedTamerId: 'perf-starter-moss',
+      },
+    ],
     auctionHouse: [],
     world: {
       seed,
@@ -171,6 +187,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
       currentRegionId: spawnRegionId,
       pos: { x: startPoi.x, y: startPoi.y },
       currentPoiId: startPoi.id,
+      worldMap,
       regions,
       factions: createInitialFactions(),
       warZones: [],
@@ -188,7 +205,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
         id: 'rumor-init-1',
         day: 1,
         regionId: spawnRegionId,
-        text: `风灯在${REGION_CATALOG[spawnRegionId].name}点亮——先把四周未探明的村镇侦查清楚，或去边界口摸索通往邻近大区的路。`,
+        text: `在${REGION_CATALOG[spawnRegionId].name}点亮了风灯：在羊皮纸上直接划线规划路程，避开沼泽与断桥，找一座城市开张或跨界进入相邻地区。`,
       },
     ],
     logs: [
@@ -196,7 +213,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
         id: 'log-init',
         day: 1,
         kind: 'system',
-        text: `「微光风灯马戏团」在${REGION_CATALOG[spawnRegionId].name}（${startPoi.details.name}）整装待发。`,
+        text: `「微光风灯马戏团」自${REGION_CATALOG[spawnRegionId].name}（${startPoi.details.name}）启程。`,
       },
     ],
   };

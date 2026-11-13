@@ -1,233 +1,260 @@
-import { useMemo, useState } from 'react';
-import { Compass, RefreshCw, Save, Sparkles, Upload, Users, Wrench } from 'lucide-react';
-import { GirlPortrait } from './components/GirlPortrait.tsx';
-import { REGION_IDS } from './content/regions.ts';
-import { usedCageSlots, usedSeats, usedWeight, wagonRepairCost, wagonUpgradeCost } from './domain/caravanMath.ts';
-import { CIRCUS_ROLE_LABELS } from './domain/cardAdapter.ts';
-import { optimizeCardImages, parseCardJson } from './engine/cardCodec.ts';
+import { useCallback, useState } from 'react';
+import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import { CaravanView } from './components/CaravanView.tsx';
+import { CartographyView } from './components/Cartography/CartographyView.tsx';
+import { BeastDialog } from './components/Modals/BeastDialog.tsx';
+import { EngineConfigDialog } from './components/Modals/EngineConfigDialog.tsx';
+import { GuideDialog, NotificationsDrawer } from './components/Modals/GuideAndNotifs.tsx';
+import { PerformerDialog } from './components/Modals/PerformerDialog.tsx';
+import { ScoutDialog } from './components/Modals/ScoutDialog.tsx';
+import { RecordsView } from './components/RecordsView.tsx';
+import { HelmBar, PageHeading, SideRail, Topbar } from './components/Shell.tsx';
+import { SuppliesView } from './components/SuppliesView.tsx';
+import { evaluateRouteStroke } from './domain/routeDraw.ts';
 import { hydrateCircusAssets, slimCircusAssets } from './engine/portraitAssets.ts';
 import { kvGet, kvSet } from './engine/store.ts';
 import { act } from './rules/act.ts';
 import { loadState, SAVE_CURRENT_KEY, serializeState } from './rules/persistence.ts';
 import { createInitialState } from './rules/state.ts';
-import type { CircusState, GameAction, GirlCard, TerrainType } from './types.ts';
+import type {
+  AppPage,
+  Beast,
+  CircusState,
+  GameAction,
+  MapZoomMode,
+  Performer,
+  RouteEvaluation,
+  SettlementDetails,
+  SettlementPoi,
+} from './types.ts';
 
-const TERRAIN_GLYPH: Record<TerrainType, string> = {
-  boundary: '▪',
-  border_gate: '门',
-  road: '·',
-  wasteland: '',
-  forest: '木',
-  swamp: '沼',
-  mountain: '山',
-  water: '水',
-  ruin: '墟',
-  warzone: '战',
-  city: '城',
-  village: '村',
-};
+type ModalState =
+  | { type: 'scout'; poi: SettlementPoi }
+  | { type: 'performer'; id: string }
+  | { type: 'beast'; beast: Beast }
+  | { type: 'engine' }
+  | { type: 'guide' }
+  | { type: 'notifications' }
+  | null;
 
 export function App() {
   const [state, setState] = useState<CircusState>(() => createInitialState());
-  const [notice, setNotice] = useState<string>('Stage 1 验证壳就绪：可测试随机出生、程序化地图、侦查占位与跨区懒加载。');
-  const [stagedCard, setStagedCard] = useState<GirlCard | null>(null);
+  const [page, setPage] = useState<AppPage>('map');
+  const [zoom, setZoom] = useState<MapZoomMode>('region');
+  const [evadeWar, setEvadeWar] = useState(false);
+  const [routeDraft, setRouteDraft] = useState<RouteEvaluation | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [toast, setToast] = useState<{ text: string; warn?: boolean } | null>(null);
 
-  const dispatch = (action: GameAction) => {
+  const notify = useCallback((text: string, warn = false) => {
+    setToast({ text, warn });
+  }, []);
+
+  const dispatch = useCallback((action: GameAction) => {
     const res = act(state, action);
     setState(res.state);
-    if (res.message) setNotice(res.message);
+    if (res.ok) setDirty(true);
+    if (res.message) notify(res.message, !res.ok);
+    return res;
+  }, [state, notify]);
+
+  const handleAssistSketchTo = (tx: number, ty: number) => {
+    const map = state.world.regions[state.world.currentRegionId].map;
+    if (!map) return;
+    const draft = evaluateRouteStroke(map, [state.world.pos, { x: tx, y: ty }], state, evadeWar);
+    setRouteDraft(draft);
+    if (zoom === 'world') setZoom('region');
+    notify(draft.blocked ? `引线遇阻：${draft.blockReason}` : `已绘参考路线至目标（${draft.distanceTiles} 里），可微调或点击「沿线启程」。`, draft.blocked);
   };
 
-  const region = state.world.regions[state.world.currentRegionId];
-  const map = region.map;
-  const currentPoi = state.world.currentPoiId && map ? map.pois[state.world.currentPoiId] : undefined;
-  const loadedCount = useMemo(
-    () => REGION_IDS.filter(id => Boolean(state.world.regions[id].map)).length,
-    [state.world.regions],
-  );
-  const currentTile = map ? map.tiles[state.world.pos.y * map.width + state.world.pos.x] : undefined;
-  const activeGate = currentTile?.terrain === 'border_gate' && map
-    ? map.gates.find(g => g.x === currentTile.x && g.y === currentTile.y)
-    : undefined;
+  const handleLaunchRoute = () => {
+    if (!routeDraft || routeDraft.validPoints.length < 2) return;
+    const res = dispatch({ type: 'executeRoute', points: routeDraft.validPoints, evadeWar });
+    if (res.ok) setRouteDraft(null);
+  };
 
-  const saveGame = async () => {
+  const handleSave = async () => {
     const slimmed = await slimCircusAssets(state);
     await kvSet(SAVE_CURRENT_KEY, serializeState(slimmed));
-    setNotice('已分片保存当前进度至本地/IndexedDB（circus-caravan 独立空间）。');
+    setDirty(false);
+    notify('羊皮纸手稿已分片归档至本地与浏览器存储。');
   };
 
-  const loadGame = async () => {
+  const handleLoadQuick = async () => {
     const raw = await kvGet<string>(SAVE_CURRENT_KEY);
-    if (!raw) { setNotice('还没有本地存档。'); return; }
+    if (!raw) {
+      notify('尚未找到本地归档记录。', true);
+      return;
+    }
     const hydrated = await hydrateCircusAssets(loadState(raw));
     setState(hydrated);
-    setNotice('已读取最近一次分片存档。');
+    setDirty(false);
+    setRouteDraft(null);
+    notify('已读回最近一份手稿存档。');
   };
 
-  const handleCardFile = async (file: File | undefined) => {
-    if (!file) return;
-    const text = await file.text();
-    const parsed = parseCardJson(text);
-    if (!parsed.ok) { setNotice(parsed.message); return; }
-    const slim = await optimizeCardImages(parsed.card);
-    setStagedCard(slim);
-    setNotice(`已读取角色卡「${slim.girl.name}」，可选择入团或派往聚落。`);
+  const handleBuySupply = (key: keyof CircusState['supplies'], amount: number, cost: number) => {
+    if (state.gold < cost) {
+      notify('巡游金币不足，无法采购这批补给。', true);
+      return;
+    }
+    setState(prev => ({
+      ...prev,
+      gold: prev.gold - cost,
+      supplies: { ...prev.supplies, [key]: prev.supplies[key] + amount },
+    }));
+    setDirty(true);
+    notify(`已补给 +${amount}，花费 ${cost} 金币。`);
   };
+
+  const activePerformer: Performer | undefined = modal?.type === 'performer'
+    ? state.performers.find(p => p.id === modal.id)
+    : undefined;
+  const activeRegion = state.world.regions[state.world.currentRegionId];
 
   return (
-    <main className="cc-shell">
-      <header className="cc-topbar">
-        <div className="cc-brand">
-          <h1>{state.caravan.name}</h1>
-          <small>第 {state.day} 日 · 当前区域：{region.name}（已加载 {loadedCount}/9 区）</small>
-        </div>
-        <div className="cc-metrics">
-          <span>金币<b>{state.gold.toLocaleString()} / {state.retirement.targetGold.toLocaleString()}</b></span>
-          <span>口粮<b>{state.supplies.rations}</b></span>
-          <span>兽料<b>{state.supplies.fodder}</b></span>
-          <span>灯油<b>{state.supplies.fuel}</b></span>
-          <span>载重<b>{usedWeight(state)}/{state.caravan.maxWeight}</b></span>
-          <span>席位<b>{usedSeats(state)}/{state.caravan.maxSeats}</b></span>
-          <span>兽笼<b>{usedCageSlots(state)}/{state.caravan.maxCageSlots}</b></span>
-        </div>
-        <div className="cc-actions">
-          <button type="button" className="cc-btn" onClick={() => dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 })}>
-            <RefreshCw size={13} />随机出生重开
-          </button>
-          <button type="button" className="cc-btn" onClick={() => void saveGame()}><Save size={13} />保存</button>
-          <button type="button" className="cc-btn" onClick={() => void loadGame()}>读档</button>
-        </div>
-      </header>
+    <div className="app-shell">
+      <SideRail
+        page={page}
+        onPage={setPage}
+        onOpenEngine={() => setModal({ type: 'engine' })}
+        onOpenCardbox={() => { setPage('caravan'); notify('请在下方「角色卡双栖指派台」导入并试配角色卡。'); }}
+        onOpenGuide={() => setModal({ type: 'guide' })}
+        onOpenSettings={() => void handleLoadQuick()}
+        unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
+      />
 
-      <div className="cc-notice">{notice}</div>
+      <Topbar
+        state={state}
+        dirty={dirty}
+        onSave={() => void handleSave()}
+        onNewRandom={() => {
+          setRouteDraft(null);
+          dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
+        }}
+        onOpenNotifications={() => setModal({ type: 'notifications' })}
+        notifCount={state.logs.length}
+      />
 
-      <section className="cc-grid">
-        <div className="cc-panel">
-          <div className="cc-panel-head">
-            <h2><Compass size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{region.name} · {region.subtitle}</h2>
-            <small>{region.theme}</small>
-          </div>
+      <main id="main-stage" className="app-main">
+        <PageHeading
+          page={page}
+          right={
+            <button id="heading-load-btn" type="button" className="btn sm" onClick={() => void handleLoadQuick()}>
+              读回最近手稿
+            </button>
+          }
+        />
 
-          {map && (
-            <div className="cc-map-grid" role="grid" aria-label="区域程序化小地图">
-              {map.tiles.map(tile => {
-                const here = state.world.pos.x === tile.x && state.world.pos.y === tile.y;
-                const fogCls = tile.fog === 'unseen' ? 'fog-unseen' : '';
-                const label = here ? '车' : (tile.fog === 'unseen' ? '' : TERRAIN_GLYPH[tile.terrain]);
-                return (
-                  <button
-                    key={`${tile.x}-${tile.y}`}
-                    type="button"
-                    className={`cc-tile t-${tile.terrain} ${fogCls} ${here ? 'is-here' : ''}`}
-                    title={`(${tile.x},${tile.y}) ${tile.terrain}${tile.gateToRegionId ? ` → ${state.world.regions[tile.gateToRegionId].name}` : ''}`}
-                    onClick={() => dispatch({ type: 'moveInRegion', x: tile.x, y: tile.y })}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+        {page === 'map' && (
+          <CartographyView
+            state={state}
+            zoom={zoom}
+            onZoom={setZoom}
+            routeDraft={routeDraft}
+            onRouteDraft={setRouteDraft}
+            evadeWar={evadeWar}
+            onToggleEvadeWar={() => setEvadeWar(v => !v)}
+            onOpenScout={poi => setModal({ type: 'scout', poi })}
+            onCrossBorder={targetRegionId => {
+              const res = dispatch({ type: 'crossBorder', targetRegionId });
+              if (res.ok) setRouteDraft(null);
+            }}
+            onAssistSketchTo={handleAssistSketchTo}
+          />
+        )}
 
-          {activeGate && (
-            <div className="cc-poi-box">
-              <strong>抵达边界出境口：</strong>通往 <b>{state.world.regions[activeGate.targetRegionId].name}</b>
-              <div style={{ marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="cc-btn primary"
-                  onClick={() => dispatch({ type: 'crossBorder', direction: activeGate.direction })}
-                >
-                  出境并懒加载「{state.world.regions[activeGate.targetRegionId].name}」小地图
-                </button>
-              </div>
-            </div>
-          )}
+        {page === 'caravan' && (
+          <CaravanView
+            state={state}
+            onUpgradeWagon={wagonId => dispatch({ type: 'upgradeWagon', wagonId })}
+            onRepairWagon={wagonId => dispatch({ type: 'repairWagon', wagonId })}
+            onHireCandidate={candidateId => dispatch({ type: 'hireCandidate', candidateId })}
+            onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
+            onImportCardAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
+            onPlaceCardAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
+            onNotify={notify}
+          />
+        )}
 
-          <div className="cc-poi-box">
-            {currentPoi ? (
-              currentPoi.scouted && currentPoi.details ? (
-                <>
-                  <strong>{currentPoi.details.name}</strong>（{currentPoi.kind === 'city' ? '城市' : '村庄'} · 希望值 {currentPoi.details.hope}）
-                  <div>{currentPoi.details.summary}</div>
-                  <small style={{ color: '#a69ba8' }}>市场特征：{currentPoi.details.marketTraits.join('、')}</small>
-                </>
-              ) : (
-                <>
-                  <strong>{currentPoi.placeholderName}</strong>（尚未侦查，仅知位置）
-                  <div style={{ marginTop: 6 }}>
-                    <button type="button" className="cc-btn primary" onClick={() => dispatch({ type: 'scoutSettlement', poiId: currentPoi.id })}>
-                      <Sparkles size={13} />侦查此地并生成详情
-                    </button>
-                  </div>
-                </>
-              )
-            ) : (
-              <span>当前位于荒野/道路 ({state.world.pos.x}, {state.world.pos.y})。点击地图上的「城 / 村 / 门」移动并测试侦查或出境懒加载。</span>
-            )}
-          </div>
-        </div>
+        {page === 'supplies' && (
+          <SuppliesView
+            state={state}
+            onSelectBeast={beast => setModal({ type: 'beast', beast })}
+            onBuySupply={handleBuySupply}
+            onNotify={notify}
+          />
+        )}
 
-        <div className="cc-panel">
-          <div className="cc-panel-head">
-            <h2><Wrench size={14} style={{ verticalAlign: -2, marginRight: 6 }} />大篷车车厢与成员</h2>
-            <small>Stage 1 骨架校验面板</small>
-          </div>
-          <div className="cc-list">
-            {state.caravan.wagons.map(wagon => (
-              <div key={wagon.id} className="cc-row">
-                <div>
-                  <b>{wagon.name}</b> <small style={{ color: '#a69ba8' }}>Lv.{wagon.level} · 耐久 {wagon.durability}/{wagon.maxDurability}</small>
-                </div>
-                <div className="cc-actions">
-                  <button type="button" className="cc-btn" disabled={wagon.durability >= wagon.maxDurability} onClick={() => dispatch({ type: 'repairWagon', wagonId: wagon.id })}>
-                    修({wagonRepairCost(wagon)})
-                  </button>
-                  <button type="button" className="cc-btn" disabled={wagon.level >= 5} onClick={() => dispatch({ type: 'upgradeWagon', wagonId: wagon.id })}>
-                    升({wagonUpgradeCost(wagon)})
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+        {page === 'records' && (
+          <RecordsView state={state} onNotify={notify} />
+        )}
+      </main>
 
-          <div className="cc-panel-head" style={{ marginTop: 6 }}>
-            <h2><Users size={14} style={{ verticalAlign: -2, marginRight: 6 }} />演员与角色卡双栖测试</h2>
-            <small>团员 {state.performers.length} · 世界 NPC {state.worldNpcs.length}</small>
-          </div>
-          <div className="cc-list">
-            {state.performers.map(perf => (
-              <div key={perf.id} className="cc-crew-card">
-                <div className="cc-crew-face"><GirlPortrait girl={perf} variant="avatar" /></div>
-                <div className="cc-crew-info">
-                  <b>{perf.name} · {CIRCUS_ROLE_LABELS[perf.role]}</b>
-                  <small>Lv.{perf.level} · 日薪 {perf.wagePerDay} · {perf.title}</small>
-                </div>
-              </div>
-            ))}
-          </div>
+      <HelmBar
+        state={state}
+        routeDraft={routeDraft}
+        onClearRoute={() => setRouteDraft(null)}
+        onLaunchRoute={handleLaunchRoute}
+        onOpenGuide={() => setModal({ type: 'guide' })}
+      />
 
-          <div className="cc-poi-box">
-            <label className="cc-btn" style={{ marginBottom: 8 }}>
-              <Upload size={13} />导入夜糖 / 通用角色卡 (.json)
-              <input type="file" accept=".json" hidden onChange={e => void handleCardFile(e.target.files?.[0])} />
-            </label>
-            {stagedCard && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span>已装载：<b>{stagedCard.girl.name}</b>（{stagedCard.girl.title}）</span>
-                <div className="cc-actions">
-                  <button type="button" className="cc-btn primary" onClick={() => dispatch({ type: 'importCardAsPerformer', card: stagedCard })}>
-                    作为演员登车
-                  </button>
-                  <button type="button" className="cc-btn" disabled={!currentPoi?.scouted} onClick={() => currentPoi && dispatch({ type: 'placeCardAsNpc', card: stagedCard, poiId: currentPoi.id })}>
-                    驻守当前聚落 NPC
-                  </button>
-                </div>
-              </div>
-            )}
+      {toast && (
+        <div id="toast-region" className="toast-region" role="status" aria-live="polite">
+          <div className={`parchment-toast ${toast.warn ? 'warn' : ''}`}>
+            {toast.warn ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+            <span>{toast.text}</span>
+            <button id="toast-close-btn" type="button" aria-label="关闭提示" onClick={() => setToast(null)}>
+              <X size={14} />
+            </button>
           </div>
         </div>
-      </section>
-    </main>
+      )}
+
+      {modal?.type === 'scout' && (
+        <ScoutDialog
+          state={state}
+          poi={activeRegion.map?.pois[modal.poi.id] ?? modal.poi}
+          onClose={() => setModal(null)}
+          onCommitScout={(poiId: string, details: SettlementDetails) => {
+            dispatch({ type: 'scoutSettlement', poiId, details });
+          }}
+          onNotify={msg => notify(msg)}
+        />
+      )}
+
+      {modal?.type === 'performer' && activePerformer && (
+        <PerformerDialog
+          performer={activePerformer}
+          regionName={activeRegion.name}
+          onClose={() => setModal(null)}
+          onChangeExpression={(performerId, expression) => dispatch({ type: 'setPerformerExpression', performerId, expression })}
+        />
+      )}
+
+      {modal?.type === 'beast' && (
+        <BeastDialog
+          beast={modal.beast}
+          onClose={() => setModal(null)}
+          onNotify={msg => notify(msg)}
+        />
+      )}
+
+      {modal?.type === 'engine' && (
+        <EngineConfigDialog
+          onClose={() => setModal(null)}
+          onNotify={msg => notify(msg)}
+        />
+      )}
+
+      {modal?.type === 'guide' && (
+        <GuideDialog onClose={() => setModal(null)} />
+      )}
+
+      {modal?.type === 'notifications' && (
+        <NotificationsDrawer logs={state.logs} onClose={() => setModal(null)} />
+      )}
+    </div>
   );
 }

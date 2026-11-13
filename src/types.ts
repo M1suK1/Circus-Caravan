@@ -111,15 +111,22 @@ export type RegionId =
 
 export type FogLevel = 'unseen' | 'rumored' | 'charted';
 
+export type MapZoomMode = 'world' | 'region' | 'follow';
+export type AppPage = 'map' | 'caravan' | 'supplies' | 'records';
+
 export type TerrainType =
-  | 'boundary'
+  | 'outside'
+  | 'ocean'
+  | 'coast'
+  | 'lake'
+  | 'river'
+  | 'bridge'
   | 'border_gate'
   | 'wasteland'
   | 'road'
   | 'forest'
   | 'swamp'
   | 'mountain'
-  | 'water'
   | 'ruin'
   | 'warzone'
   | 'city'
@@ -180,13 +187,38 @@ export interface RegionNeighbor {
   targetRegionId: RegionId;
 }
 
-export interface TerrainTile {
-  x: number;
-  y: number;
-  terrain: TerrainType;
-  fog: FogLevel;
-  gateToRegionId?: RegionId;
-  poiId?: string;
+export interface RegionBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  centerX: number;
+  centerY: number;
+}
+
+export interface WorldRiver {
+  id: string;
+  points: { x: number; y: number }[];
+}
+
+export interface WorldLake {
+  id: string;
+  centerX: number;
+  centerY: number;
+  radius: number;
+}
+
+export interface WorldMapData {
+  width: number;   // 128
+  height: number;  // 128
+  seed: number;
+  /** 128*128 地形字节码 Base64 */
+  terrainBase64: string;
+  /** 128*128 区域归属字节（0..8 对应 REGION_IDS，255 为海洋/未归属）Base64 */
+  regionGridBase64: string;
+  regionBounds: Record<RegionId, RegionBounds>;
+  rivers: WorldRiver[];
+  lakes: WorldLake[];
 }
 
 export interface SettlementDetails {
@@ -205,8 +237,11 @@ export interface SettlementPoi {
   id: string;
   regionId: RegionId;
   kind: 'city' | 'village';
+  /** 聚落中心坐标（局部区域网格坐标） */
   x: number;
   y: number;
+  /** 多格占地清单（城市占多格，村庄占 1–2 格） */
+  footprint: { x: number; y: number }[];
   scouted: boolean;
   placeholderName: string;
   details?: SettlementDetails;
@@ -223,12 +258,34 @@ export interface RegionGate {
 
 export interface RegionMap {
   regionId: RegionId;
+  scale: 10;
+  /** 相对于 128×128 世界地图的放大偏移（minX*10, minY*10） */
+  worldOffsetX: number;
+  worldOffsetY: number;
   width: number;
   height: number;
   seed: number;
+  /** width*height 地形字节码 Base64（0..15 对应 TERRAIN_ORDER） */
+  terrainBase64: string;
+  /** 探索位掩码 Base64（1 bit/格，仅记曾到达或当前视野已揭露地貌） */
+  exploredMaskBase64: string;
   gates: RegionGate[];
-  tiles: TerrainTile[];
   pois: Record<string, SettlementPoi>;
+}
+
+export interface RouteEvaluation {
+  points: { x: number; y: number }[];
+  validPoints: { x: number; y: number }[];
+  distanceTiles: number;
+  travelDays: number;
+  rationsCost: number;
+  fuelCost: number;
+  durabilityCost: number;
+  blocked: boolean;
+  blockReason?: string;
+  reachedGate?: RegionGate;
+  reachedPoiId?: string;
+  avgSpeedMultiplier: number;
 }
 
 export interface MacroRegion {
@@ -508,9 +565,11 @@ export interface CircusState {
     seed: number;
     spawnRegionId: RegionId;
     currentRegionId: RegionId;
+    /** 当前大篷车在区域小地图内的连续坐标（可精确到小数格） */
     pos: { x: number; y: number };
     currentPoiId?: string;
     traveling?: TravelProgress;
+    worldMap: WorldMapData;
     regions: Record<RegionId, MacroRegion>;
     factions: Record<FactionId, FactionState>;
     warZones: WarFront[];
@@ -532,9 +591,9 @@ export interface ActionResult {
 
 export type GameAction =
   | { type: 'newGame'; seed?: number; spawnRegionId?: RegionId }
-  | { type: 'crossBorder'; direction: Direction }
+  | { type: 'crossBorder'; targetRegionId: RegionId; direction?: Direction }
   | { type: 'scoutSettlement'; poiId: string; details?: SettlementDetails }
-  | { type: 'moveInRegion'; x: number; y: number }
+  | { type: 'executeRoute'; points: { x: number; y: number }[]; evadeWar?: boolean }
   | { type: 'upgradeWagon'; wagonId: string }
   | { type: 'repairWagon'; wagonId: string }
   | { type: 'hireCandidate'; candidateId: string }

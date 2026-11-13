@@ -20,7 +20,7 @@ export function normalizeState(raw: string | null): CircusState | null {
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const candidate = parsed as Partial<CircusState>;
-  if (candidate.version !== 1 || !candidate.caravan || !candidate.world || !Array.isArray(candidate.performers)) {
+  if (candidate.version !== 2 || !candidate.caravan || !candidate.world?.worldMap || !Array.isArray(candidate.performers)) {
     return null;
   }
   if (!REGION_IDS.includes(candidate.world.currentRegionId)) return null;
