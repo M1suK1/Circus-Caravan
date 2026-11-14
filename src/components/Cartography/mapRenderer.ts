@@ -255,21 +255,40 @@ function paintWorldScreenInk(ctx: CanvasRenderingContext2D, state: CircusState, 
   ctx.lineCap = 'round';
   for (let y = 3; y < world.height - 3; y += 2) {
     for (let x = 3; x < world.width - 3; x += 2) {
-      const ter = TERRAIN_ORDER[terArr[y * world.width + x]!] ?? 'ocean';
-      if (ter !== 'mountain' && ter !== 'forest') continue;
-      const jx = (valueNoise2d(x, y, 1.7, world.seed + 41) - 0.5) * 0.6;
-      const jy = (valueNoise2d(x, y, 1.7, world.seed + 83) - 0.5) * 0.6;
-      const { px, py } = mapToCanvasPx(x + 0.5 + jx, y + 0.5 + jy, vp);
+      // 扫描 2×2 采样块内的山地与森林，确保哪怕较窄的边界山脊也必定绘出山峰轮廓
+      let blockTer: string | null = null;
+      let mx = x;
+      let my = y;
+      for (let dy = 0; dy < 2; dy += 1) {
+        for (let dx = 0; dx < 2; dx += 1) {
+          const t = TERRAIN_ORDER[terArr[(y + dy) * world.width + (x + dx)]!] ?? 'ocean';
+          if (t === 'mountain') {
+            blockTer = 'mountain';
+            mx = x + dx;
+            my = y + dy;
+          } else if (t === 'forest' && blockTer !== 'mountain') {
+            blockTer = 'forest';
+            mx = x + dx;
+            my = y + dy;
+          }
+        }
+      }
+      if (!blockTer) continue;
+      const jx = (valueNoise2d(mx, my, 1.7, world.seed + 41) - 0.5) * 0.5;
+      const jy = (valueNoise2d(mx, my, 1.7, world.seed + 83) - 0.5) * 0.5;
+      const { px, py } = mapToCanvasPx(mx + 0.5 + jx, my + 0.5 + jy, vp);
 
-      if (ter === 'mountain') {
-        const mw = scale * 1.15;
-        const mh = scale * 1.05;
+      if (blockTer === 'mountain') {
+        const mw = scale * 1.25;
+        const mh = scale * 1.15;
         ctx.beginPath();
-        ctx.moveTo(px - mw, py + mh * 0.75);
+        ctx.moveTo(px - mw, py + mh * 0.78);
         ctx.lineTo(px, py - mh);
-        ctx.lineTo(px + mw, py + mh * 0.75);
-        ctx.strokeStyle = 'rgba(44, 26, 13, 0.82)';
-        ctx.lineWidth = Math.max(1.1, scale * 0.22);
+        ctx.lineTo(px + mw, py + mh * 0.78);
+        ctx.fillStyle = 'rgba(132, 98, 60, 0.42)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(42, 24, 11, 0.88)';
+        ctx.lineWidth = Math.max(1.2, scale * 0.24);
         ctx.stroke();
       } else if (((x + y) & 2) === 0) {
         ctx.beginPath();

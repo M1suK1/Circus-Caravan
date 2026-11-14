@@ -99,7 +99,7 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
       }
 
       const n = valueNoise2d(lx, ly, 9, regionSeed + 41);
-      if (wTer === 'mountain' && n > 0.28) {
+      if (wTer === 'mountain' && n > 0.18) {
         terrain[lIdx] = TERRAIN_TO_CODE.mountain;
       } else {
         const picked = sampleEcoTerrain(profile.terrainWeights, n, false);

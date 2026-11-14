@@ -30,7 +30,7 @@ const COPPER_TONE: Record<TerrainType, [number, number, number]> = {
   road: [194, 156, 104],
   forest: [164, 160, 110],
   swamp: [152, 144, 108],
-  mountain: [184, 150, 106],
+  mountain: [168, 132, 88],
   ruin: [182, 152, 122],
   warzone: [188, 116, 88],
   city: [196, 122, 84],
@@ -171,7 +171,7 @@ export function rasterizeWorldCopperplate(world: WorldMapData, out: Uint8Clamped
         if ((rr < 9 && rr !== rIdx) || (rd < 9 && rd !== rIdx)) isBorder = true;
       }
 
-      if (isBorder && ((x + y) & 1) === 0) {
+      if (isBorder && ter !== 'mountain' && ((x + y) & 1) === 0) {
         out[p] = 86;
         out[p + 1] = 56;
         out[p + 2] = 34;

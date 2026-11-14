@@ -56,7 +56,7 @@ test('s9 世界地图山脉尽量生成在疆域边界处而非大陆中间堵�
       }
     }
 
-    assert.ok(totalMountains >= 25, `seed=${seed} 应保留适量边界山脉，实际=${totalMountains}`);
+    assert.ok(totalMountains >= 160, `seed=${seed} 应沿疆域边界形成明显的山脉群（>=160 格），实际=${totalMountains}`);
     const borderRatio = borderMountains / Math.max(1, totalMountains);
     assert.ok(
       borderRatio >= 0.72,

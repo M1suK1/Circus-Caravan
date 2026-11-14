@@ -268,7 +268,7 @@ export function applyBorderMountains(
   while (head < queue.length) {
     const cur = queue[head++]!;
     const nextD = borderDist[cur]! + 1;
-    if (nextD > 4) continue;
+    if (nextD > 5) continue;
     const cx = cur % WORLD_WIDTH;
     const cy = (cur - cx) / WORLD_WIDTH;
     if (cx > 0 && borderDist[cur - 1]! > nextD && regionGrid[cur - 1]! < 9) { borderDist[cur - 1] = nextD; queue.push(cur - 1); }
@@ -282,13 +282,18 @@ export function applyBorderMountains(
       const idx = y * WORLD_WIDTH + x;
       if (field.isOcean[idx] || isLake[idx] || isRiver[idx] || field.isCoast[idx]) continue;
       const bd = borderDist[idx]!;
-      if (bd > 2) continue;
+      if (bd > 4) continue;
       const passMask = valueNoise2d(x, y, 11, seed + 991);
-      const ridge = valueNoise2d(x, y, 4.5, seed + 1049);
-      // 约 65% 省界线隆起为天然山脉，留出约 35% 低矮山口与河谷通道供干道通行
-      if ((bd <= 1 && passMask > 0.34 && ridge > 0.28) || (bd === 2 && passMask > 0.48 && ridge > 0.44)) {
+      const ridge = valueNoise2d(x, y, 4.8, seed + 1049);
+      // 沿省界形成 3–6 格宽的连绵分水岭山脉带，同时保留约 30% 低矮山口与河谷通道供干道穿行
+      const isRange =
+        (bd <= 1 && passMask > 0.28) ||
+        (bd === 2 && passMask > 0.34 && ridge > 0.26) ||
+        (bd === 3 && passMask > 0.42 && ridge > 0.40) ||
+        (bd === 4 && passMask > 0.56 && ridge > 0.60);
+      if (isRange) {
         field.isMountain[idx] = 1;
-        field.elevation[idx] = Math.max(field.elevation[idx]!, 0.94 + ridge * 0.16);
+        field.elevation[idx] = Math.max(field.elevation[idx]!, 0.94 + ridge * 0.18);
       }
     }
   }
