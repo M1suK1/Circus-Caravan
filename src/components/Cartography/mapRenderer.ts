@@ -12,10 +12,12 @@ import {
 } from './copperplatePainter.ts';
 import {
   collectVisibleGateMarkers,
+  collectVisibleLandmarkMarkers,
   collectVisibleSettlementMarkers,
   drawCaravanIcon,
   drawCityIcon,
   drawGateIcon,
+  drawLandmarkIcon,
   drawOctopathBannerCallout,
   drawVillageIcon,
   isSettlementRevealed,
@@ -562,6 +564,21 @@ function drawRegionCanvas(
 
   const visiblePois = collectVisibleSettlementMarkers(map, caravanPos, vp, state.world.currentPoiId);
   const regDanger = state.world.regions[state.world.currentRegionId].dangerTier;
+
+  const landmarkSize = Math.max(15, Math.min(22, pxPerTile * 2.2));
+  for (const lm of collectVisibleLandmarkMarkers(map, caravanPos, vp)) {
+    const pos = mapToCanvasPx(lm.x + 0.5, lm.y + 0.5, vp);
+    drawLandmarkIcon(ctx, pos.px, pos.py, landmarkSize, lm.kind, lm.resolved);
+    ctx.font = '600 10.5px "Noto Serif SC", serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.strokeStyle = 'rgba(250, 240, 216, 0.92)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(lm.name, pos.px, pos.py - landmarkSize * 0.52);
+    ctx.fillStyle = lm.resolved ? '#6c5a46' : '#2a1c11';
+    ctx.fillText(lm.name, pos.px, pos.py - landmarkSize * 0.52);
+  }
+
   for (const marker of visiblePois) {
     const pos = mapToCanvasPx(marker.x + 0.5, marker.y + 0.5, vp);
     const sz = marker.kind === 'city' ? citySize : villageSize;

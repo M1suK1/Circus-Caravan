@@ -1,5 +1,10 @@
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import {
+  applyInjectCardboxGuests,
+  applyRecruitWorldNpc,
+  applySetRegionBlueprint,
+} from './cardOps.ts';
+import {
   applyAcceptFreightOrder,
   applyAcceptPassengerOrder,
   applyDeliverContract,
@@ -16,6 +21,7 @@ import {
   applyUpgradeWagon,
 } from './crewOps.ts';
 import { applyRetire } from './endingOps.ts';
+import { applyResolveLandmark } from './landmarkOps.ts';
 import { createInitialState } from './state.ts';
 import {
   applySettlementAidOrPass,
@@ -74,6 +80,14 @@ export function act(state: CircusState, action: GameAction): ActionResult {
       return applyDeliverContract(state, action);
     case 'sellBeast':
       return applySellBeast(state, action);
+    case 'resolveLandmark':
+      return applyResolveLandmark(state, action);
+    case 'recruitWorldNpc':
+      return applyRecruitWorldNpc(state, action);
+    case 'injectCardboxGuests':
+      return applyInjectCardboxGuests(state, action);
+    case 'setRegionBlueprint':
+      return applySetRegionBlueprint(state, action);
     default:
       return { state, ok: false, message: '未知操作。' };
   }

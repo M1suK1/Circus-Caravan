@@ -29,8 +29,10 @@ import {
 import { describeClock, timeSlotProgress } from '../domain/calendar.ts';
 import { canRetire } from '../domain/caravanMath.ts';
 import { CIRCUS_ROLE_LABELS } from '../domain/cardAdapter.ts';
+import { isLandmarkRevealed, LANDMARK_META } from '../domain/landmarks.ts';
+import { getRegionReputation, getReputationTier } from '../domain/reputation.ts';
 import { isTileExplored } from '../domain/routeDraw.ts';
-import type { AppPage, CircusState, Performer, RegionId, RouteEvaluation, SettlementPoi } from '../types.ts';
+import type { AppPage, CircusState, FieldLandmark, Performer, RegionId, RouteEvaluation, SettlementPoi } from '../types.ts';
 import { CaravanCrestIcon } from './CaravanCrestIcon.tsx';
 import { isSettlementRevealed } from './Cartography/mapIcons.ts';
 import { GirlPortrait } from './GirlPortrait.tsx';
@@ -197,6 +199,7 @@ export function RightTroupeLedger({
   onOpenNotifications,
   onSelectPerformer,
   onOpenScout,
+  onOpenLandmark,
   onAssistSketchTo,
   onCrossBorder,
   onAdvanceTimeSlot,
@@ -210,6 +213,7 @@ export function RightTroupeLedger({
   onOpenNotifications: () => void;
   onSelectPerformer: (performer: Performer) => void;
   onOpenScout: (poi: SettlementPoi) => void;
+  onOpenLandmark?: (landmark: FieldLandmark) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
   onCrossBorder: (targetRegionId: RegionId) => void;
   onAdvanceTimeSlot: () => void;
@@ -218,6 +222,8 @@ export function RightTroupeLedger({
 }) {
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
+  const regionRep = getRegionReputation(region);
+  const regionRepTier = getReputationTier(regionRep);
   const avgDurability = Math.round(
     state.caravan.wagons.reduce((sum, w) => sum + w.durability, 0) / Math.max(1, state.caravan.wagons.length),
   );
@@ -227,6 +233,9 @@ export function RightTroupeLedger({
 
   const discoveredPois = map
     ? Object.values(map.pois).filter(poi => isSettlementRevealed(map, poi, state.world.pos))
+    : [];
+  const discoveredLandmarks = map
+    ? Object.values(map.landmarks ?? {}).filter(lm => isLandmarkRevealed(map, lm, state.world.pos))
     : [];
   const gates = map
     ? map.gates.map(g => ({
@@ -356,7 +365,9 @@ export function RightTroupeLedger({
       {/* 下部：当前疆域驻地侦查与邻近据点/关口快捷调度台 */}
       <div className="octo-section-label">
         <span>{region.name} · 斥候手札</span>
-        <small>危级 LV.{region.dangerTier}</small>
+        <small title={regionRepTier.summary}>
+          {regionRepTier.label} ({regionRep >= 0 ? `+${regionRep}` : regionRep}) · LV.{region.dangerTier}
+        </small>
       </div>
 
       <div className="octo-recon-deck">
@@ -409,6 +420,35 @@ export function RightTroupeLedger({
                 >
                   {poi.scouted ? '详览' : '侦查'}
                 </button>
+              </div>
+            </div>
+          ))}
+
+          {discoveredLandmarks.map(lm => (
+            <div key={lm.id} className="octo-recon-item">
+              <div className="octo-recon-info">
+                <b>{lm.name}{lm.resolved ? ' (已探)' : ''}</b>
+                <small>{LANDMARK_META[lm.kind].label} · ({lm.x},{lm.y})</small>
+              </div>
+              <div className="octo-recon-btns">
+                <button
+                  id={`assist-lm-${lm.id}`}
+                  type="button"
+                  className="octo-inline-action"
+                  onClick={() => onAssistSketchTo(lm.x, lm.y)}
+                >
+                  寻路
+                </button>
+                {onOpenLandmark && (
+                  <button
+                    id={`open-lm-${lm.id}`}
+                    type="button"
+                    className={`octo-inline-action ${lm.resolved ? '' : 'primary'}`}
+                    onClick={() => onOpenLandmark(lm)}
+                  >
+                    {lm.resolved ? '详览' : '探索'}
+                  </button>
+                )}
               </div>
             </div>
           ))}

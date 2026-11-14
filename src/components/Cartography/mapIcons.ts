@@ -1,8 +1,9 @@
 /**
  * 《八方旅人》风双墨边象牙菱形地标纹章、竖向黑针危级标牌与大篷车棋子图标。
  */
+import { isLandmarkRevealed } from '../../domain/landmarks.ts';
 import { CARAVAN_VISION_RADIUS, exploredMaskArray } from '../../domain/routeDraw.ts';
-import type { RegionGate, RegionMap, SettlementPoi } from '../../types.ts';
+import type { FieldLandmark, LandmarkKind, RegionGate, RegionMap, SettlementPoi } from '../../types.ts';
 
 export interface MapViewportBounds {
   viewX: number;
@@ -397,5 +398,69 @@ export function drawCaravanIcon(
     ctx.fill();
   }
 
+  ctx.restore();
+}
+
+export function collectVisibleLandmarkMarkers(
+  map: RegionMap,
+  caravanPos: { x: number; y: number },
+  vp: MapViewportBounds,
+): FieldLandmark[] {
+  return Object.values(map.landmarks ?? {}).filter(
+    lm => isPointInViewport(lm.x, lm.y, vp) && isLandmarkRevealed(map, lm, caravanPos, CARAVAN_VISION_RADIUS),
+  );
+}
+
+const LANDMARK_GLYPH_COLOR: Record<LandmarkKind, string> = {
+  ancient_ruin: '#6f5133',
+  wild_lair: '#2e6f4a',
+  refugee_camp: '#b06324',
+  smuggler_cove: '#614178',
+  watchtower_post: '#8e2b24',
+  shrine_hearth: '#c48f2c',
+};
+
+/** 绘制野外兴趣点八角铜印图标（区别于城村菱形纹章） */
+export function drawLandmarkIcon(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  size: number,
+  kind: LandmarkKind,
+  resolved: boolean,
+): void {
+  const r = size * 0.44;
+  ctx.save();
+  ctx.translate(px, py);
+
+  ctx.beginPath();
+  for (let i = 0; i < 8; i += 1) {
+    const ang = (Math.PI / 4) * i + Math.PI / 8;
+    const vx = Math.cos(ang) * r;
+    const vy = Math.sin(ang) * r;
+    if (i === 0) ctx.moveTo(vx, vy);
+    else ctx.lineTo(vx, vy);
+  }
+  ctx.closePath();
+  ctx.fillStyle = resolved ? '#cbbba0' : '#f7ebcf';
+  ctx.fill();
+  ctx.lineWidth = Math.max(1.3, size * 0.06);
+  ctx.strokeStyle = resolved ? '#5f4e3d' : '#1e140c';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+  ctx.fillStyle = resolved ? '#7a6c59' : LANDMARK_GLYPH_COLOR[kind];
+  ctx.fill();
+
+  if (resolved) {
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.25, 0);
+    ctx.lineTo(-r * 0.04, r * 0.22);
+    ctx.lineTo(r * 0.28, -r * 0.22);
+    ctx.strokeStyle = '#fff5df';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
   ctx.restore();
 }

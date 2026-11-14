@@ -3,6 +3,7 @@
  *
  * 严格遵循栅格几何约定：整数格 (gx, gy) 占据连续坐标区间 [gx, gx + 1) × [gy, gy + 1)，格心位于 (gx + 0.5, gy + 0.5)。
  */
+import { findReachedLandmark } from './landmarks.ts';
 import { regionTerrainArray } from './regionGen.ts';
 import { decodeBytes, encodeBytes, TERRAIN_ORDER } from './worldGen.ts';
 import type { CircusState, RegionMap, RouteEvaluation, TerrainType } from '../types.ts';
@@ -213,6 +214,7 @@ export function evaluateRouteStroke(
   const reachedPoi = Object.values(map.pois).find(
     p => p.footprint.some(c => Math.hypot(c.x + 0.5 - end.x, c.y + 0.5 - end.y) <= 2.0),
   );
+  const reachedLandmark = reachedPoi ? undefined : findReachedLandmark(map, end.x, end.y);
 
   const heads = state.performers.length + state.passengerOrders.filter(o => o.status === 'aboard').reduce((s, o) => s + o.seatsNeeded, 0);
   const exactTravelDays = Math.max(0, weightedDays * (evadeWar ? 1.25 : 1));
@@ -241,6 +243,7 @@ export function evaluateRouteStroke(
     blockReason,
     reachedGate,
     reachedPoiId: reachedPoi?.id,
+    reachedLandmarkId: reachedLandmark?.id,
     avgSpeedMultiplier: sampleCount ? Number((speedSum / sampleCount).toFixed(2)) : 1,
   };
 }
@@ -336,6 +339,7 @@ export function mergeRouteEvaluations(base: RouteEvaluation, ext: RouteEvaluatio
     blockReason: ext.blockReason,
     reachedGate: ext.reachedGate ?? base.reachedGate,
     reachedPoiId: ext.reachedPoiId ?? base.reachedPoiId,
+    reachedLandmarkId: ext.reachedLandmarkId ?? base.reachedLandmarkId,
     avgSpeedMultiplier: avgSpd,
   };
 }

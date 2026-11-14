@@ -170,6 +170,14 @@ export const REGION_CATALOG: Record<RegionId, RegionProfile> = {
 
 export const REGION_IDS = Object.keys(REGION_CATALOG) as RegionId[];
 
+export function initialRegionReputation(regionId: RegionId): number {
+  const tier = REGION_CATALOG[regionId].dangerTier;
+  if (regionId === 'dawn_coast' || regionId === 'ancient_forest') return 12;
+  if (tier >= 5) return -12;
+  if (tier >= 4) return -5;
+  return 5;
+}
+
 export function createInitialMacroRegions(): Record<RegionId, MacroRegion> {
   const out = {} as Record<RegionId, MacroRegion>;
   for (const id of REGION_IDS) {
@@ -182,6 +190,8 @@ export function createInitialMacroRegions(): Record<RegionId, MacroRegion> {
       dominantFaction: profile.dominantFaction,
       neighbors: profile.neighbors.map(n => ({ ...n })),
       dangerTier: profile.dangerTier,
+      reputation: initialRegionReputation(id),
+      reputationHistory: [],
       map: undefined,
     };
   }

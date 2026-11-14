@@ -3,6 +3,7 @@
  */
 import type { RegionProfile } from '../content/regions.ts';
 import type { CircusState, FactionId, SettlementBuilding, SettlementPoi } from '../types.ts';
+import { getRegionReputation, getReputationModifiers } from './reputation.ts';
 
 export function buildSettlementBuildings(
   poi: SettlementPoi,
@@ -116,12 +117,20 @@ export function buildSettlementBuildings(
   ];
 }
 
-export function computeTavernRestCost(state: Pick<CircusState, 'performers'>, isCity: boolean): number {
-  return Math.max(30, state.performers.length * (isCity ? 26 : 18));
+export function computeTavernRestCost(
+  state: Pick<CircusState, 'performers'> & { world?: Pick<CircusState['world'], 'regions' | 'currentRegionId'> },
+  isCity: boolean,
+): number {
+  const base = Math.max(30, state.performers.length * (isCity ? 26 : 18));
+  if (!state.world) return base;
+  const reg = state.world.regions[state.world.currentRegionId];
+  if (!reg) return base;
+  const mod = getReputationModifiers(getRegionReputation(reg));
+  return Math.max(20, Math.round(base * mod.tavernCostMult));
 }
 
 export function computeShowPayout(
-  state: Pick<CircusState, 'performers' | 'beasts' | 'caravan' | 'supplies'>,
+  state: Pick<CircusState, 'performers' | 'beasts' | 'caravan' | 'supplies'> & { world?: Pick<CircusState['world'], 'regions' | 'currentRegionId'> },
   poi: SettlementPoi,
   dangerTier: number,
 ): { revenue: number; tipBonus: number; hopeGain: number; fameGain: number; matchScore: number } {
@@ -142,10 +151,13 @@ export function computeShowPayout(
   const beastAppeal = state.beasts.reduce((sum, b) => sum + b.appeal, 0);
   const baseScale = poi.kind === 'city' ? 240 : 145;
   const propBoost = state.supplies.props > 0 ? 1.18 : 1;
+  const reg = state.world?.regions[poi.regionId];
+  const repMult = reg ? getReputationModifiers(getRegionReputation(reg)).showPayoutMult : 1;
   const revenue = Math.round(
     (baseScale + state.performers.length * 48 + stageLevel * 55 + beastAppeal * 1.4) *
       (1 + matchCount * 0.14) *
-      propBoost,
+      propBoost *
+      repMult,
   );
   const tipBonus = Math.round(revenue * (0.12 + dangerTier * 0.03));
   const hopeGain = Math.min(18, 6 + matchCount * 3 + Math.floor(beastAppeal / 35));

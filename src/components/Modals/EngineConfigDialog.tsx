@@ -1,11 +1,24 @@
-import { useState } from 'react';
-import { BookOpen, Cpu, FileCode2, KeyRound, Sparkles, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BookOpen, Cpu, FileCode2, KeyRound, ShieldCheck, Sparkles, WifiOff, X } from 'lucide-react';
+import {
+  NARRATIVE_SCOPE_LABELS,
+  type NarrativeScope,
+} from '../../content/promptTemplates.ts';
 import {
   filterWorldbookEntries,
   WORLDBOOK_CATEGORY_LABELS,
   WORLDBOOK_ENTRIES,
   type WorldbookCategory,
 } from '../../content/worldbook.ts';
+import {
+  defaultLlmSettings,
+  getCachedLlmSecret,
+  type LlmSettings,
+  loadLlmSettings,
+  saveLlmSettings,
+} from '../../engine/llmService.ts';
+
+const SCOPES = Object.keys(NARRATIVE_SCOPE_LABELS) as NarrativeScope[];
 
 export function EngineConfigDialog({
   onClose,
@@ -15,19 +28,25 @@ export function EngineConfigDialog({
   onNotify: (msg: string) => void;
 }) {
   const [tab, setTab] = useState<'api' | 'prompts' | 'worldbook'>('worldbook');
-  const [provider, setProvider] = useState<'openai' | 'vertex'>('vertex');
-  const [model, setModel] = useState('gemini-2.5-pro');
-  const [thinking, setThinking] = useState(true);
   const [wbCat, setWbCat] = useState<WorldbookCategory | 'all'>('all');
-  const [enabledIds, setEnabledIds] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(WORLDBOOK_ENTRIES.map(e => [e.id, e.defaultEnabled])),
-  );
-  const [scoutPrompt, setScoutPrompt] = useState(
-    '你正在为末世奇幻马戏团生成前方城邦/村落的侦查简报。请严格依据【所属大区基调】、【周围十倍小地图地形】与【世界书激活词条】，写出地名、民众在破败中挣扎求生的日常细节、观众偏好的演出与商路隐患。',
-  );
+  const [settings, setSettings] = useState<LlmSettings>(() => defaultLlmSettings());
+  const [secretInput, setSecretInput] = useState<string>(() => getCachedLlmSecret());
+  const [activeScope, setActiveScope] = useState<NarrativeScope>('scout');
+
+  useEffect(() => {
+    void loadLlmSettings().then(({ settings: loaded }) => {
+      setSettings(loaded);
+      setSecretInput(getCachedLlmSecret());
+    });
+  }, []);
 
   const visibleEntries = filterWorldbookEntries(wbCat);
-  const activeCount = WORLDBOOK_ENTRIES.filter(e => enabledIds[e.id]).length;
+  const activeCount = WORLDBOOK_ENTRIES.filter(e => settings.enabledWorldbookIds[e.id]).length;
+
+  const commitSettings = async (msg: string) => {
+    await saveLlmSettings(settings, secretInput);
+    onNotify(msg);
+  };
 
   return (
     <div id="engine-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="engine-modal-title">
@@ -47,10 +66,10 @@ export function EngineConfigDialog({
             <BookOpen size={13} /><span>末世世界书条目 ({activeCount}/{WORLDBOOK_ENTRIES.length})</span>
           </button>
           <button id="engine-tab-api" type="button" role="tab" aria-selected={tab === 'api'} className={`silk-tab tone-indigo ${tab === 'api' ? 'active' : ''}`} onClick={() => setTab('api')}>
-            <KeyRound size={13} /><span>模型网关与思维链</span>
+            <KeyRound size={13} /><span>模型网关与模式 ({settings.mode === 'llm' ? '实时 LLM' : '离线演剧'})</span>
           </button>
           <button id="engine-tab-prompts" type="button" role="tab" aria-selected={tab === 'prompts'} className={`silk-tab ${tab === 'prompts' ? 'active' : ''}`} onClick={() => setTab('prompts')}>
-            <FileCode2 size={13} /><span>四大作用域预设</span>
+            <FileCode2 size={13} /><span>六大作用域预设</span>
           </button>
         </div>
 
@@ -82,7 +101,7 @@ export function EngineConfigDialog({
                 id="engine-save-wb-btn"
                 type="button"
                 className="btn sm primary"
-                onClick={() => onNotify(`已保存世界书激活状态（当前启用 ${activeCount} 条设定词条）。`)}
+                onClick={() => void commitSettings(`已保存世界书按需注入配置（当前启用 ${activeCount} 条词条）。`)}
               >
                 保存词条状态
               </button>
@@ -90,7 +109,7 @@ export function EngineConfigDialog({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 370, overflowY: 'auto', paddingRight: 4 }}>
               {visibleEntries.map(entry => {
-                const enabled = Boolean(enabledIds[entry.id]);
+                const enabled = Boolean(settings.enabledWorldbookIds[entry.id]);
                 return (
                   <article key={entry.id} className="poi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, padding: '10px 12px', opacity: enabled ? 1 : 0.62 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -104,7 +123,10 @@ export function EngineConfigDialog({
                           id={`wb-toggle-${entry.id}`}
                           type="checkbox"
                           checked={enabled}
-                          onChange={e => setEnabledIds(prev => ({ ...prev, [entry.id]: e.target.checked }))}
+                          onChange={e => setSettings(prev => ({
+                            ...prev,
+                            enabledWorldbookIds: { ...prev.enabledWorldbookIds, [entry.id]: e.target.checked },
+                          }))}
                         />
                         <span>{enabled ? '已注入' : '已停用'}</span>
                       </label>
@@ -123,52 +145,151 @@ export function EngineConfigDialog({
         )}
 
         {tab === 'api' && (
-          <div className="paper-note tone-ivory pinned" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="paper-note tone-ivory pinned" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                id="engine-mode-offline"
+                type="button"
+                className={`btn sm ${settings.mode === 'offline' ? 'primary' : ''}`}
+                onClick={() => setSettings(prev => ({ ...prev, mode: 'offline' }))}
+              >
+                <WifiOff size={13} />离线本地演剧模式（零门槛兜底）
+              </button>
+              <button
+                id="engine-mode-llm"
+                type="button"
+                className={`btn sm ${settings.mode === 'llm' ? 'primary' : ''}`}
+                onClick={() => setSettings(prev => ({ ...prev, mode: 'llm' }))}
+              >
+                <Sparkles size={13} />实时叙事接入（Vertex / OpenAI）
+              </button>
+            </div>
+
             <div style={{ display: 'flex', gap: 10 }}>
-              <button id="provider-vertex" type="button" className={`btn sm ${provider === 'vertex' ? 'primary' : ''}`} onClick={() => setProvider('vertex')}>
+              <button
+                id="provider-vertex"
+                type="button"
+                className={`btn sm ${settings.provider === 'vertex' ? 'primary' : ''}`}
+                onClick={() => setSettings(prev => ({ ...prev, provider: 'vertex' }))}
+              >
                 <Cpu size={13} />Vertex AI（含思维链阶梯）
               </button>
-              <button id="provider-openai" type="button" className={`btn sm ${provider === 'openai' ? 'primary' : ''}`} onClick={() => setProvider('openai')}>
+              <button
+                id="provider-openai"
+                type="button"
+                className={`btn sm ${settings.provider === 'openai' ? 'primary' : ''}`}
+                onClick={() => setSettings(prev => ({ ...prev, provider: 'openai' }))}
+              >
                 OpenAI 兼容接口
               </button>
             </div>
+
+            <div className="two-col-grid">
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                <span>默认模型标识</span>
+                <input
+                  id="engine-model-input"
+                  type="text"
+                  value={settings.model}
+                  onChange={e => setSettings(prev => ({ ...prev, model: e.target.value }))}
+                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', fontFamily: 'var(--font-data)' }}
+                />
+              </label>
+
+              {settings.provider === 'vertex' ? (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                  <span>Vertex 区域 (Location)</span>
+                  <input
+                    id="engine-location-input"
+                    type="text"
+                    value={settings.location}
+                    onChange={e => setSettings(prev => ({ ...prev, location: e.target.value }))}
+                    style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', fontFamily: 'var(--font-data)' }}
+                  />
+                </label>
+              ) : (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                  <span>OpenAI 兼容 Base URL</span>
+                  <input
+                    id="engine-baseurl-input"
+                    type="text"
+                    value={settings.openaiBaseUrl}
+                    onChange={e => setSettings(prev => ({ ...prev, openaiBaseUrl: e.target.value }))}
+                    style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', fontFamily: 'var(--font-data)' }}
+                  />
+                </label>
+              )}
+            </div>
+
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-              <span>默认模型标识</span>
+              <span><ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />API Key 或服务账号 JSON（仅隔离存放在引擎槽，绝不写入游戏存档与角色卡）</span>
               <input
-                id="engine-model-input"
-                type="text"
-                value={model}
-                onChange={e => setModel(e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', fontFamily: 'var(--font-data)' }}
+                id="engine-secret-input"
+                type="password"
+                value={secretInput}
+                onChange={e => setSecretInput(e.target.value)}
+                placeholder="未填密钥时将自动无损退回离线模板模式"
+                style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', fontFamily: 'var(--font-data)' }}
               />
             </label>
+
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-              <input id="engine-thinking-toggle" type="checkbox" checked={thinking} onChange={e => setThinking(e.target.checked)} />
-              <span>启用思维链推演（`includeThoughts` / `thinkingLevel` 自适应）</span>
+              <input
+                id="engine-thinking-toggle"
+                type="checkbox"
+                checked={settings.thinking}
+                onChange={e => setSettings(prev => ({ ...prev, thinking: e.target.checked }))}
+              />
+              <span>启用思维链推演（`includeThoughts` / `thinkingLevel` 自适应 + 自动 JSON 修复）</span>
             </label>
+
             <button
               id="engine-save-proto-btn"
               type="button"
               className="btn primary"
-              onClick={() => onNotify('前端原型提示：模型配置外观已保存（当前阶段不连接真实后端请求）。')}
+              onClick={() => void commitSettings(
+                settings.mode === 'llm'
+                  ? '已启用实时叙事引擎配置（网络不可用或缺失密钥时自动无损降级）。'
+                  : '已切换为离线本地演剧模式。',
+              )}
             >
-              <Sparkles size={13} />保存引擎原型配置
+              <Sparkles size={13} />保存引擎网关配置
             </button>
           </div>
         )}
 
         {tab === 'prompts' && (
           <div className="paper-note tone-kraft" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <small style={{ color: 'var(--ink-muted)' }}>作用范围：聚落侦查（`scout`）· 篝火夜谈（`campfire`）· 故事蓝图灾厄推演（`blueprint`）· 隐居终局（`ending`）</small>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {SCOPES.map(scope => (
+                <button
+                  key={scope}
+                  id={`prompt-scope-${scope}`}
+                  type="button"
+                  className={`btn sm ${activeScope === scope ? 'primary' : 'ghost'}`}
+                  onClick={() => setActiveScope(scope)}
+                >
+                  {NARRATIVE_SCOPE_LABELS[scope]}
+                </button>
+              ))}
+            </div>
             <textarea
               id="engine-prompt-editor"
               rows={6}
-              value={scoutPrompt}
-              onChange={e => setScoutPrompt(e.target.value)}
-              style={{ padding: 10, borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', lineHeight: 1.6 }}
+              value={settings.prompts[activeScope]}
+              onChange={e => setSettings(prev => ({
+                ...prev,
+                prompts: { ...prev.prompts, [activeScope]: e.target.value },
+              }))}
+              style={{ padding: 10, borderRadius: 6, border: '1px solid var(--umber-strong)', background: '#fffaf0', lineHeight: 1.65 }}
             />
-            <button id="engine-save-prompt-btn" type="button" className="btn primary" onClick={() => onNotify('已暂存前端提示词模板预览。')}>
-              保存提示词草稿
+            <button
+              id="engine-save-prompt-btn"
+              type="button"
+              className="btn primary"
+              onClick={() => void commitSettings(`已保存「${NARRATIVE_SCOPE_LABELS[activeScope]}」提示词模板。`)}
+            >
+              保存作用域提示词
             </button>
           </div>
         )}

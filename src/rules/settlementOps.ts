@@ -1,4 +1,5 @@
 import { REGION_CATALOG } from '../content/regions.ts';
+import { computeRegionReputationUpdate } from '../domain/reputation.ts';
 import { computeShowPayout, computeTavernRestCost } from '../domain/settlements.ts';
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
@@ -75,9 +76,17 @@ export function applyStagePerform(
   });
   next.recentShows = next.recentShows.slice(0, 20);
 
+  const repDelta = poi.kind === 'city' ? 6 : 4;
+  const repUpd = computeRegionReputationUpdate(region, repDelta, next.day, `在「${name}」举行马戏巡演`);
+  region.reputation = repUpd.reputation;
+  region.reputationHistory = repUpd.reputationHistory;
+  if (region.dominantFaction !== 'neutral' && next.world.factions[region.dominantFaction] && repUpd.factionDelta !== 0) {
+    next.world.factions[region.dominantFaction].standing += repUpd.factionDelta;
+  }
+
   const finalState = advanceClockSlots(next, 1);
-  pushLog(finalState, 'show', `在「${name}」巡演大获成功，净赚 ${totalEarned} 金，聚落希望值 +${payout.hopeGain}。`);
-  return { state: finalState, ok: true, message: `演出圆满落幕！获得门票与打赏共 ${totalEarned} 金。` };
+  pushLog(finalState, 'show', `在「${name}」巡演大获成功，净赚 ${totalEarned} 金，聚落希望值 +${payout.hopeGain}，区域声望 +${repDelta}。`);
+  return { state: finalState, ok: true, message: `演出圆满落幕！获得门票与打赏共 ${totalEarned} 金（区域声望 +${repDelta}）。` };
 }
 
 export function applySettlementBuySupply(

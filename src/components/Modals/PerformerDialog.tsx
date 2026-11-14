@@ -20,11 +20,13 @@ import {
   X,
 } from 'lucide-react';
 import { CIRCUS_ROLE_LABELS, performerToCard } from '../../domain/cardAdapter.ts';
+import { cardboxAdd, loadCardBox } from '../../engine/cardbox.ts';
 import { EXPRESSIONS, EXPRESSION_META } from '../../engine/expressions.ts';
 import { safeOptimizedImageDataUrl } from '../../engine/image.ts';
+import { callNarrativeLlm } from '../../engine/llmService.ts';
 import { VnReader } from '../../engine/vn/VnReader.tsx';
 import type { VnBeat } from '../../engine/vn/types.ts';
-import type { Expression, Performer, StatKey } from '../../types.ts';
+import type { Expression, Performer, RegionId, StatKey } from '../../types.ts';
 import { GirlPortrait } from '../GirlPortrait.tsx';
 
 type DossierTabId = 'overview' | 'ability' | 'appearance' | 'campfire';
@@ -71,6 +73,7 @@ function bondStageLabel(bond: number): string {
 export function PerformerDialog({
   performer,
   day,
+  regionId = 'empire_heart',
   regionName,
   onClose,
   onChangeExpression,
@@ -79,6 +82,7 @@ export function PerformerDialog({
 }: {
   performer: Performer;
   day: number;
+  regionId?: RegionId;
   regionName: string;
   onClose: () => void;
   onChangeExpression: (performerId: string, exp: Expression) => void;
@@ -88,6 +92,7 @@ export function PerformerDialog({
   const [tab, setTab] = useState<DossierTabId>('overview');
   const [campfireMode, setCampfireMode] = useState<'chat' | 'vn'>('chat');
   const [draft, setDraft] = useState('');
+  const [busyReply, setBusyReply] = useState(false);
   const [messages, setMessages] = useState<{ role: 'player' | 'npc'; text: string }[]>([
     {
       role: 'npc',
@@ -97,10 +102,36 @@ export function PerformerDialog({
 
   const sendLine = (text: string) => {
     const clean = text.trim();
-    if (!clean) return;
-    const reply = `（她拨了拨衣领上的铜扣，神情转向${EXPRESSION_META[performer.expression].label}）“${clean}……放心吧，${performer.goal}”`;
-    setMessages(prev => [...prev, { role: 'player', text: clean }, { role: 'npc', text: reply }]);
+    if (!clean || busyReply) return;
+    setMessages(prev => [...prev, { role: 'player', text: clean }]);
     setDraft('');
+    setBusyReply(true);
+    const fallbackReply = `（她拨了拨衣领上的铜扣，神情转向${EXPRESSION_META[performer.expression].label}）“${clean}……放心吧，${performer.goal}”`;
+    void callNarrativeLlm<string>({
+      scope: 'campfire',
+      regionId,
+      keywords: [performer.name, regionName, performer.role],
+      parseJson: false,
+      userPrompt: `角色：${performer.name}（${performer.title}，性格：${performer.personality}，目标：${performer.goal}，当前地区：${regionName}，第${day}日，羁绊：${performer.bond}）。团长对她说：「${clean}」。请直接以她的第一人称回一句 40-90 字的夜谈台词（可带括号动作）。`,
+      fallback: () => fallbackReply,
+    }).then(res => {
+      const replyText = typeof res.data === 'string' && res.data.trim() ? res.data.trim() : fallbackReply;
+      setMessages(prev => [...prev, { role: 'npc', text: replyText }]);
+      setBusyReply(false);
+    });
+  };
+
+  const handleSaveToCardbox = async () => {
+    const card = performerToCard(performer, { day });
+    const existing = await loadCardBox();
+    const res = await cardboxAdd([{ name: `${performer.name}.circus-card.json`, text: JSON.stringify(card) }], existing);
+    if (res.added.length > 0) {
+      onNotify(`已将养成后的「${performer.name}」回存至巡游契约卡匣，可供其他存档继续复用！`);
+    } else if (res.duplicates.length > 0) {
+      onNotify(`卡匣中已存在「${performer.name}」完全相同的当前快照。`);
+    } else {
+      onNotify(res.failed[0]?.message ?? '回存卡匣失败。', true);
+    }
   };
 
   const handleExportCard = () => {
@@ -188,6 +219,15 @@ export function PerformerDialog({
             <div className="dossier-name">
               <h2 id="performer-modal-title">{performer.name}</h2>
               <span>Lv.{performer.level.toString().padStart(2, '0')}</span>
+              <button
+                id="performer-save-cardbox-btn"
+                type="button"
+                className="dossier-export"
+                title="将当前养成后的角色快照保存到独立卡匣，供未来存档跨局复用"
+                onClick={() => void handleSaveToCardbox()}
+              >
+                <Sparkles size={13} />回存卡匣
+              </button>
               <button
                 id="performer-export-card"
                 type="button"

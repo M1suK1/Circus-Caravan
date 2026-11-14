@@ -4,9 +4,11 @@ import { CaravanView } from './components/CaravanView.tsx';
 import { CartographyView } from './components/Cartography/CartographyView.tsx';
 import { BeastDialog } from './components/Modals/BeastDialog.tsx';
 import { BestiaryDialog } from './components/Modals/BestiaryDialog.tsx';
+import { CardboxDialog } from './components/Modals/CardboxDialog.tsx';
 import { DayLedgerDialog } from './components/Modals/DayLedgerDialog.tsx';
 import { EngineConfigDialog } from './components/Modals/EngineConfigDialog.tsx';
 import { GuideDialog, NotificationsDrawer } from './components/Modals/GuideAndNotifs.tsx';
+import { LandmarkDialog } from './components/Modals/LandmarkDialog.tsx';
 import { PerformerDialog } from './components/Modals/PerformerDialog.tsx';
 import { RetirementDialog } from './components/Modals/RetirementDialog.tsx';
 import { ScoutDialog } from './components/Modals/ScoutDialog.tsx';
@@ -15,6 +17,7 @@ import { RecordsView } from './components/RecordsView.tsx';
 import { HelmBar, PageHeading, RightTroupeLedger, SideRail } from './components/Shell.tsx';
 import { SuppliesView } from './components/SuppliesView.tsx';
 import { VellumDogEar } from './components/VellumDogEar.tsx';
+import { findReachedLandmark } from './domain/landmarks.ts';
 import { findAutoRoute } from './domain/pathfinding.ts';
 import {
   evaluateRouteStroke,
@@ -31,6 +34,7 @@ import type {
   AppPage,
   Beast,
   CircusState,
+  FieldLandmark,
   GameAction,
   MapZoomMode,
   Performer,
@@ -41,6 +45,8 @@ import type {
 
 type ModalState =
   | { type: 'scout'; poi: SettlementPoi }
+  | { type: 'landmark'; landmark: FieldLandmark }
+  | { type: 'cardbox' }
   | { type: 'performer'; id: string }
   | { type: 'beast'; beast: Beast }
   | { type: 'bestiary' }
@@ -164,11 +170,13 @@ export function App() {
           setRouteDraft(null);
           setRouteHistory([]);
           const landedId = res.state.world.currentPoiId;
-          const landedPoi = landedId
-            ? res.state.world.regions[res.state.world.currentRegionId].map?.pois[landedId]
-            : undefined;
+          const curMap = res.state.world.regions[res.state.world.currentRegionId].map;
+          const landedPoi = landedId && curMap ? curMap.pois[landedId] : undefined;
           if (landedPoi) {
             setModal({ type: 'scout', poi: landedPoi });
+          } else if (curMap) {
+            const landedLm = findReachedLandmark(curMap, res.state.world.pos.x, res.state.world.pos.y);
+            if (landedLm) setModal({ type: 'landmark', landmark: landedLm });
           }
         }
       }
@@ -260,6 +268,7 @@ export function App() {
         evadeWar={evadeWar}
         onToggleEvadeWar={() => setEvadeWar(v => !v)}
         onOpenScout={poi => setModal({ type: 'scout', poi })}
+        onOpenLandmark={landmark => setModal({ type: 'landmark', landmark })}
         onAssistSketchTo={handleAssistSketchTo}
         onAttemptCapture={(speciesId, useBait) => {
           dispatch({ type: 'attemptWildCapture', speciesId, useBait });
@@ -323,7 +332,7 @@ export function App() {
           dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
         }}
         onOpenEngine={() => setModal({ type: 'engine' })}
-        onOpenCardbox={() => { setPage('caravan'); notify('可在右侧「角色卡双栖指派台」导入并试配角色卡。'); }}
+        onOpenCardbox={() => setModal({ type: 'cardbox' })}
         onOpenBestiary={() => setModal({ type: 'bestiary' })}
         onOpenGuide={() => setModal({ type: 'guide' })}
         unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
@@ -337,6 +346,7 @@ export function App() {
         onOpenNotifications={() => setModal({ type: 'notifications' })}
         onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
         onOpenScout={poi => setModal({ type: 'scout', poi })}
+        onOpenLandmark={landmark => setModal({ type: 'landmark', landmark })}
         onAssistSketchTo={handleAssistSketchTo}
         onCrossBorder={targetRegionId => {
           stopTravelAnimation();
@@ -398,11 +408,33 @@ export function App() {
         <PerformerDialog
           performer={activePerformer}
           day={state.day}
+          regionId={state.world.currentRegionId}
           regionName={activeRegion.name}
           onClose={() => setModal(null)}
           onChangeExpression={(performerId, expression) => dispatch({ type: 'setPerformerExpression', performerId, expression })}
           onChangePortrait={(performerId, portrait) => dispatch({ type: 'setPerformerPortrait', performerId, portrait })}
           onNotify={notify}
+        />
+      )}
+
+      {modal?.type === 'landmark' && (
+        <LandmarkDialog
+          state={state}
+          landmark={activeRegion.map?.landmarks?.[modal.landmark.id] ?? modal.landmark}
+          onResolve={(landmarkId, choice) => dispatch({ type: 'resolveLandmark', landmarkId, choice })}
+          onAttemptCapture={(speciesId, useBait) => dispatch({ type: 'attemptWildCapture', speciesId, useBait })}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal?.type === 'cardbox' && (
+        <CardboxDialog
+          state={state}
+          onImportAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
+          onPlaceAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
+          onInjectGuests={cards => dispatch({ type: 'injectCardboxGuests', cards })}
+          onNotify={notify}
+          onClose={() => setModal(null)}
         />
       )}
 

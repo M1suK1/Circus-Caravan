@@ -16,12 +16,14 @@ import {
   X,
 } from 'lucide-react';
 import { REGION_CATALOG } from '../../content/regions.ts';
+import { getRegionReputation, getReputationModifiers } from '../../domain/reputation.ts';
 import { fallbackSettlementDetails, surroundingTerrainsOf } from '../../domain/regionGen.ts';
 import {
   buildSettlementBuildings,
   computeShowPayout,
   computeTavernRestCost,
 } from '../../domain/settlements.ts';
+import { callNarrativeLlm } from '../../engine/llmService.ts';
 import type {
   CircusState,
   GameAction,
@@ -97,23 +99,53 @@ export function ScoutDialog({
 
   useEffect(() => {
     if (!generating) return;
-    const draft = fallbackSettlementDetails(poi, REGION_CATALOG[poi.regionId], surroundings, state.world.seed + state.day);
-    const fullText = `【叙事引擎 · 聚落勘察简报】\n地名：${draft.name}\n风貌：${draft.summary}\n商情：${draft.marketTraits.join(' / ')}`;
-    let idx = 0;
-    const timer = window.setInterval(() => {
-      idx += 6;
-      setStreamPreview(fullText.slice(0, idx));
-      if (idx >= fullText.length) {
-        window.clearInterval(timer);
-        setGenerating(false);
-        onCommitScout(poi.id, { ...draft, detailSource: 'llm' });
-      }
-    }, 26);
-    return () => window.clearInterval(timer);
-  }, [generating, poi, surroundings, state.world.seed, state.day, onCommitScout]);
+    let cancelled = false;
+    const regionProfile = REGION_CATALOG[poi.regionId];
+    const draft = fallbackSettlementDetails(poi, regionProfile, surroundings, state.world.seed + state.day);
+
+    void callNarrativeLlm<Partial<SettlementDetails>>({
+      scope: 'scout',
+      regionId: poi.regionId,
+      keywords: [regionProfile.name, ...surroundings],
+      parseJson: true,
+      userPrompt: `请为「${regionProfile.name}」的${poi.kind === 'city' ? '城郭' : '村寨'}（周边地形：${surroundings.slice(0, 8).join('、')}，区域声望：${getRegionReputation(region)}）生成 JSON：{"name","summary","marketTraits","rumorLead"}`,
+      fallback: () => draft,
+    }).then(res => {
+      if (cancelled) return;
+      const merged: SettlementDetails = {
+        ...draft,
+        name: typeof res.data.name === 'string' && res.data.name.trim() ? res.data.name.trim().slice(0, 18) : draft.name,
+        summary: typeof res.data.summary === 'string' && res.data.summary.trim() ? res.data.summary.trim().slice(0, 180) : draft.summary,
+        marketTraits: Array.isArray(res.data.marketTraits) && res.data.marketTraits.length
+          ? res.data.marketTraits.filter((x): x is string => typeof x === 'string').slice(0, 3)
+          : draft.marketTraits,
+        rumorLead: typeof res.data.rumorLead === 'string' && res.data.rumorLead.trim()
+          ? res.data.rumorLead.trim().slice(0, 120)
+          : draft.rumorLead,
+        detailSource: res.source === 'llm' ? 'llm' : 'fallback',
+      };
+      const fullText = `【叙事引擎 · 聚落勘察简报（${merged.detailSource === 'llm' ? 'LLM' : '离线演剧'}）】\n地名：${merged.name}\n风貌：${merged.summary}\n商情：${merged.marketTraits.join(' / ')}`;
+      let idx = 0;
+      const timer = window.setInterval(() => {
+        if (cancelled) {
+          window.clearInterval(timer);
+          return;
+        }
+        idx += 8;
+        setStreamPreview(fullText.slice(0, idx));
+        if (idx >= fullText.length) {
+          window.clearInterval(timer);
+          setGenerating(false);
+          onCommitScout(poi.id, merged);
+        }
+      }, 20);
+    });
+    return () => { cancelled = true; };
+  }, [generating, poi, surroundings, state.world.seed, state.day, region, onCommitScout]);
 
   const restCost = computeTavernRestCost(state, poi.kind === 'city');
   const showPreview = computeShowPayout(state, poi, region.dangerTier);
+  const shopMult = getReputationModifiers(getRegionReputation(region)).shopPriceMult;
 
   return (
     <div id="scout-modal-backdrop" className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scout-modal-title">
@@ -240,11 +272,25 @@ export function ScoutDialog({
                           <Coins size={11} />投宿 ({restCost} 金)
                         </button>
                       </div>
-                      <div className="poi-row">
+                      <div className="poi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                         <div className="poi-row-info">
                           <b><Users size={11} /> 驻地角色卡 NPC ({npcsHere.length})</b>
-                          <small>{npcsHere.length ? npcsHere.map(n => `${n.name}(${n.title})`).join('、') : '暂未安排驻地角色卡 NPC'}</small>
+                          <small>{npcsHere.length ? '以下熟人角色卡驻留在此聚落，停靠期间可邀约同行登车。' : '暂未安排驻地角色卡 NPC（可在卡匣中投放或一键客串）'}</small>
                         </div>
+                        {npcsHere.map(npc => (
+                          <div key={npc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px dashed var(--umber-line)', paddingTop: 5 }}>
+                            <small><b>{npc.name}</b>（{npc.title} · 好感 {npc.disposition}）</small>
+                            <button
+                              id={`recruit-world-npc-${npc.id}`}
+                              type="button"
+                              className="btn sm primary"
+                              disabled={!isHere}
+                              onClick={() => onAction({ type: 'recruitWorldNpc', npcId: npc.id })}
+                            >
+                              邀约登车
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -269,29 +315,32 @@ export function ScoutDialog({
 
                   {(activeBuilding.kind === 'general_store' || activeBuilding.kind === 'workshop_market') && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
-                      {(activeBuilding.kind === 'general_store' ? STORE_BATCHES.slice(0, 4) : STORE_BATCHES).map(item => (
-                        <div key={item.key} className="poi-row">
-                          <div className="poi-row-info">
-                            <b>{item.name} (+{item.amount})</b>
-                            <small>当前库存 {state.supplies[item.key]}</small>
+                      {(activeBuilding.kind === 'general_store' ? STORE_BATCHES.slice(0, 4) : STORE_BATCHES).map(item => {
+                        const finalCost = Math.max(15, Math.round(item.cost * shopMult));
+                        return (
+                          <div key={item.key} className="poi-row">
+                            <div className="poi-row-info">
+                              <b>{item.name} (+{item.amount})</b>
+                              <small>当前库存 {state.supplies[item.key]}{shopMult !== 1 ? ` · 声望调价 ×${shopMult.toFixed(2)}` : ''}</small>
+                            </div>
+                            <button
+                              id={`building-buy-${item.key}`}
+                              type="button"
+                              className="btn sm primary"
+                              disabled={!isHere || state.gold < finalCost}
+                              onClick={() => onAction({
+                                type: 'settlementBuySupply',
+                                poiId: poi.id,
+                                supplyKey: item.key,
+                                amount: item.amount,
+                                cost: finalCost,
+                              })}
+                            >
+                              {finalCost} 金采购
+                            </button>
                           </div>
-                          <button
-                            id={`building-buy-${item.key}`}
-                            type="button"
-                            className="btn sm primary"
-                            disabled={!isHere || state.gold < item.cost}
-                            onClick={() => onAction({
-                              type: 'settlementBuySupply',
-                              poiId: poi.id,
-                              supplyKey: item.key,
-                              amount: item.amount,
-                              cost: item.cost,
-                            })}
-                          >
-                            {item.cost} 金采购
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 

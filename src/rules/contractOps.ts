@@ -7,6 +7,7 @@ import {
   generatePassengerOffers,
   isAtContractDestination,
 } from '../domain/contracts.ts';
+import { computeRegionReputationUpdate } from '../domain/reputation.ts';
 import type { ActionResult, CircusState, FreightContract, GameAction, PassengerContract, SettlementPoi } from '../types.ts';
 import { clone, pushLog } from './core.ts';
 
@@ -124,6 +125,12 @@ export function applyDeliverContract(
     order.status = 'delivered';
     next.gold += order.rewardGold;
     next.caravan.fame += 4;
+    const destReg = next.world.regions[order.toRegionId];
+    if (destReg) {
+      const upd = computeRegionReputationUpdate(destReg, 6, next.day, `交割货运「${order.title}」`);
+      destReg.reputation = upd.reputation;
+      destReg.reputationHistory = upd.reputationHistory;
+    }
     if (order.issuerFaction !== 'neutral' && next.world.factions[order.issuerFaction]) {
       next.world.factions[order.issuerFaction].standing += 3;
     }
@@ -168,11 +175,14 @@ export function applySellBeast(
     next.world.factions.dawn_order.standing -= 18;
     next.world.factions.demon_court.standing -= 6;
     next.world.factions.rust_syndicate.standing += 4;
+    const repUpd = computeRegionReputationUpdate(region, -15, next.day, `在「${poiName}」拍卖有知性魔物娘`);
+    region.reputation = repUpd.reputation;
+    region.reputationHistory = repUpd.reputationHistory;
     next.caravan.morale = Math.max(0, next.caravan.morale - 10);
     for (const perf of next.performers) {
       perf.morale = Math.max(0, perf.morale - 8);
     }
-    const msg = `在「${poiName}」拍卖行将「${beast!.nickname}」高价售出（+${quote.price} 金），但贩卖具有知性的魔物娘严重动摇了全团士气，黎明圣教声望 -18。`;
+    const msg = `在「${poiName}」拍卖行将「${beast!.nickname}」高价售出（+${quote.price} 金），但贩卖具有知性的魔物娘严重动摇了全团士气，本区声望 -15、黎明圣教声望 -18。`;
     pushLog(next, 'faction', msg);
     return { state: next, ok: true, message: msg };
   }

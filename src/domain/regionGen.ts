@@ -2,6 +2,7 @@
  * 10× 区域小地图程序化生成器（继承世界地图形状、河湖位置，生成 1–3 座多格城市与主要道路）。
  */
 import { REGION_CATALOG, REGION_IDS, type RegionProfile } from '../content/regions.ts';
+import { generateRegionLandmarks } from './landmarks.ts';
 import { applyRegionHydrology } from './regionHydrology.ts';
 import {
   computeWorldNeighbors,
@@ -307,6 +308,7 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
   }
 
   const exploredMask = new Uint8Array(Math.ceil((width * height) / 8));
+  const landmarks = generateRegionLandmarks(regionId, terrain, width, height, pois, gates, regionSeed);
 
   return {
     regionId,
@@ -320,6 +322,7 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
     exploredMaskBase64: encodeBytes(exploredMask),
     gates,
     pois,
+    landmarks,
   };
 }
 

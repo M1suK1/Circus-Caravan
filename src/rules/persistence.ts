@@ -1,4 +1,4 @@
-import { REGION_IDS } from '../content/regions.ts';
+import { initialRegionReputation, REGION_IDS } from '../content/regions.ts';
 import { computeCaravanCapacity } from '../domain/caravanMath.ts';
 import { seedStarterEncounters } from '../domain/encounters.ts';
 import { computeWorldNeighbors } from '../domain/worldGen.ts';
@@ -31,8 +31,12 @@ export function normalizeState(raw: string | null): CircusState | null {
 
   const liveNeighbors = computeWorldNeighbors(candidate.world.worldMap);
   for (const rId of REGION_IDS) {
-    if (candidate.world.regions?.[rId]) {
-      candidate.world.regions[rId].neighbors = liveNeighbors[rId].map(n => ({ ...n }));
+    const reg = candidate.world.regions?.[rId];
+    if (reg) {
+      reg.neighbors = liveNeighbors[rId].map(n => ({ ...n }));
+      reg.reputation ??= initialRegionReputation(rId);
+      reg.reputationHistory ??= [];
+      if (reg.map) reg.map.landmarks ??= {};
     }
   }
   if (candidate.world.currentPoiId && Number.isInteger(candidate.world.pos.x) && Number.isInteger(candidate.world.pos.y)) {

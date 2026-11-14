@@ -2338,6 +2338,12 @@ h1, h2, h3, h4, p { margin: 0; }
   overflow-y: auto;
 }
 
+.poi-row.active-row {
+  border-color: var(--crimson);
+  background: rgba(255, 244, 224, 0.96);
+  box-shadow: 0 2px 8px rgba(166, 52, 41, 0.14);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

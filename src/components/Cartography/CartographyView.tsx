@@ -17,11 +17,13 @@ import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
 import { findBeastSpecies } from '../../content/species.ts';
 import { getElementProfile } from '../../domain/creatureTaxonomy.ts';
 import { computeTerrainEncounterTable, getTerrainBaseEncounterChance } from '../../domain/encounters.ts';
+import { isLandmarkRevealed } from '../../domain/landmarks.ts';
 import { regionTerrainAt } from '../../domain/regionGen.ts';
 import { isTileExplored, TERRAIN_COST, TERRAIN_SPEED } from '../../domain/routeDraw.ts';
 import { worldRegionAt, worldTerrainAt } from '../../domain/worldGen.ts';
 import type {
   CircusState,
+  FieldLandmark,
   MapZoomMode,
   RegionId,
   RouteEvaluation,
@@ -81,6 +83,7 @@ export function CartographyView({
   evadeWar,
   onToggleEvadeWar,
   onOpenScout,
+  onOpenLandmark,
   onAssistSketchTo,
   onAttemptCapture,
 }: {
@@ -95,6 +98,7 @@ export function CartographyView({
   evadeWar: boolean;
   onToggleEvadeWar: () => void;
   onOpenScout: (poi: SettlementPoi) => void;
+  onOpenLandmark?: (landmark: FieldLandmark) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
   onAttemptCapture: (speciesId: string, useBait: boolean) => void;
 }) {
@@ -348,6 +352,16 @@ export function CartographyView({
                     sketch.restorePreStrokeDraft();
                     setInspectedTile(null);
                     setFocusedPoiId(hit.id);
+                    return;
+                  }
+                  const hitLm = Object.values(map.landmarks ?? {}).find(
+                    lm => isLandmarkRevealed(map, lm, state.world.pos) && Math.hypot(lm.x + 0.5 - pt.x, lm.y + 0.5 - pt.y) <= 2.8,
+                  );
+                  if (hitLm && onOpenLandmark) {
+                    sketch.restorePreStrokeDraft();
+                    setInspectedTile(null);
+                    setFocusedPoiId(null);
+                    onOpenLandmark(hitLm);
                     return;
                   }
                 }

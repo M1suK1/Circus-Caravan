@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Award, Flag, Radio, ScrollText, ShieldAlert, Sparkles } from 'lucide-react';
+import { Award, Flag, MapPin, Radio, ScrollText, ShieldAlert, Sparkles } from 'lucide-react';
 import { FACTIONS, FACTION_IDS } from '../content/factions.ts';
+import { REGION_IDS } from '../content/regions.ts';
 import { canRetire } from '../domain/caravanMath.ts';
+import { getRegionReputation, getReputationTier } from '../domain/reputation.ts';
 import type { CircusState, GameLog } from '../types.ts';
 
 const LOG_KIND_CN: Record<GameLog['kind'], string> = {
@@ -109,6 +111,33 @@ export function RecordsView({
                   </div>
                   <strong style={{ fontFamily: 'var(--font-data)', fontSize: 13, color: st.standing >= 0 ? 'var(--forest)' : 'var(--crimson)' }}>
                     {st.standing >= 0 ? `+${st.standing}` : st.standing}
+                  </strong>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="card-head" style={{ marginTop: 10 }}>
+            <h3><MapPin size={14} />九大地区民间声望纵览</h3>
+          </div>
+          <div className="factions-grid" style={{ marginBottom: 10 }}>
+            {REGION_IDS.map(rId => {
+              const reg = state.world.regions[rId];
+              const rep = getRegionReputation(reg);
+              const tier = getReputationTier(rep);
+              return (
+                <div key={rId} className="poi-row">
+                  <div className="poi-row-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <b>{reg.name}</b>
+                      <span className={`wax-pill ${tier.tone === 'gold' ? 'amber' : tier.tone === 'neutral' ? '' : tier.tone}`}>
+                        {tier.label}
+                      </span>
+                    </div>
+                    <small>{tier.summary}</small>
+                  </div>
+                  <strong style={{ fontFamily: 'var(--font-data)', fontSize: 12.5, color: rep >= 0 ? 'var(--forest)' : 'var(--crimson)' }}>
+                    {rep >= 0 ? `+${rep}` : rep}
                   </strong>
                 </div>
               );

@@ -275,6 +275,43 @@ export interface RegionGate {
   y: number;
 }
 
+export type LandmarkKind =
+  | 'ancient_ruin'
+  | 'wild_lair'
+  | 'refugee_camp'
+  | 'smuggler_cove'
+  | 'watchtower_post'
+  | 'shrine_hearth';
+
+export interface FieldLandmark {
+  id: string;
+  regionId: RegionId;
+  kind: LandmarkKind;
+  x: number;
+  y: number;
+  terrain: TerrainType;
+  name: string;
+  summary: string;
+  discovered: boolean;
+  resolved: boolean;
+  linkedSpeciesId?: string;
+}
+
+export type RegionReputationTierId = 'hostile' | 'wary' | 'neutral' | 'warm_lantern' | 'legendary';
+
+export interface RegionCalamityBlueprint {
+  id: string;
+  regionId: RegionId;
+  calamityName: string;
+  severity: 0 | 1 | 2 | 3;
+  angelCover: string;
+  devilCover: string;
+  clues: string[];
+  discoveredClues: string[];
+  resolvedBy?: 'angel' | 'devil';
+  source: 'llm' | 'fallback';
+}
+
 export interface RegionMap {
   regionId: RegionId;
   scale: 10;
@@ -290,6 +327,7 @@ export interface RegionMap {
   exploredMaskBase64: string;
   gates: RegionGate[];
   pois: Record<string, SettlementPoi>;
+  landmarks?: Record<string, FieldLandmark>;
 }
 
 export interface RouteEvaluation {
@@ -308,6 +346,7 @@ export interface RouteEvaluation {
   blockReason?: string;
   reachedGate?: RegionGate;
   reachedPoiId?: string;
+  reachedLandmarkId?: string;
   avgSpeedMultiplier: number;
 }
 
@@ -327,6 +366,10 @@ export interface MacroRegion {
   dominantFaction: FactionId | 'neutral';
   neighbors: RegionNeighbor[];
   dangerTier: 1 | 2 | 3 | 4 | 5;
+  /** 各大区独立民间口碑声望 (-100..+100) */
+  reputation?: number;
+  reputationHistory?: { day: number; delta: number; reason: string }[];
+  calamityBlueprint?: RegionCalamityBlueprint;
   /** 仅当前区与已出境踏入的地区生成；未涉足地区保持 undefined */
   map?: RegionMap;
 }
@@ -687,4 +730,8 @@ export type GameAction =
   | { type: 'acceptFreightOrder'; orderId: string }
   | { type: 'acceptPassengerOrder'; orderId: string }
   | { type: 'deliverContract'; contractKind: 'freight' | 'passenger'; orderId: string }
-  | { type: 'sellBeast'; beastId: string; poiId: string };
+  | { type: 'sellBeast'; beastId: string; poiId: string }
+  | { type: 'resolveLandmark'; landmarkId: string; choice: 'primary' | 'secondary' }
+  | { type: 'recruitWorldNpc'; npcId: string }
+  | { type: 'injectCardboxGuests'; cards: GirlCard[]; maxCount?: number }
+  | { type: 'setRegionBlueprint'; regionId: RegionId; blueprint: RegionCalamityBlueprint };
