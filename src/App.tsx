@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { CaravanView } from './components/CaravanView.tsx';
 import { CartographyView } from './components/Cartography/CartographyView.tsx';
@@ -7,8 +7,9 @@ import { EngineConfigDialog } from './components/Modals/EngineConfigDialog.tsx';
 import { GuideDialog, NotificationsDrawer } from './components/Modals/GuideAndNotifs.tsx';
 import { PerformerDialog } from './components/Modals/PerformerDialog.tsx';
 import { ScoutDialog } from './components/Modals/ScoutDialog.tsx';
+import { OrnateAtlasFrame } from './components/OrnateAtlasFrame.tsx';
 import { RecordsView } from './components/RecordsView.tsx';
-import { HelmBar, PageHeading, SideRail, Topbar } from './components/Shell.tsx';
+import { HelmBar, PageHeading, RightTroupeLedger, SideRail } from './components/Shell.tsx';
 import { SuppliesView } from './components/SuppliesView.tsx';
 import { VellumDogEar } from './components/VellumDogEar.tsx';
 import { evaluateRouteStroke } from './domain/routeDraw.ts';
@@ -60,20 +61,21 @@ export function App() {
     return res;
   }, [state, notify]);
 
-  const handleAssistSketchTo = (tx: number, ty: number) => {
+  const handleAssistSketchTo = useCallback((tx: number, ty: number) => {
     const map = state.world.regions[state.world.currentRegionId].map;
     if (!map) return;
     const draft = evaluateRouteStroke(map, [state.world.pos, { x: tx, y: ty }], state, evadeWar);
     setRouteDraft(draft);
+    setPage('map');
     if (zoom === 'world') setZoom('region');
-    notify(draft.blocked ? `引线遇阻：${draft.blockReason}` : `已绘参考路线至目标（${draft.distanceTiles} 里），可微调或点击「沿线启程」。`, draft.blocked);
-  };
+    notify(draft.blocked ? `引线遇阻：${draft.blockReason}` : `已绘参考墨线至目标（${draft.distanceTiles} 里），按 Enter 或点「沿线启程」。`, draft.blocked);
+  }, [state, evadeWar, zoom, notify]);
 
-  const handleLaunchRoute = () => {
+  const handleLaunchRoute = useCallback(() => {
     if (!routeDraft || routeDraft.validPoints.length < 2) return;
     const res = dispatch({ type: 'executeRoute', points: routeDraft.validPoints, evadeWar });
     if (res.ok) setRouteDraft(null);
-  };
+  }, [routeDraft, dispatch, evadeWar]);
 
   const handleSave = async () => {
     const slimmed = await slimCircusAssets(state);
@@ -109,98 +111,133 @@ export function App() {
     notify(`已补给 +${amount}，花费 ${cost} 金币。`);
   };
 
+  // 八方旅人全局键盘快捷键支持（1/2/3 切换视距、Enter 启程、Escape 逐层返回全图）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'Escape') {
+        if (modal) setModal(null);
+        else if (page !== 'map') setPage('map');
+        else if (routeDraft) setRouteDraft(null);
+      } else if (e.key === 'Enter' && page === 'map' && !modal && routeDraft && routeDraft.validPoints.length >= 2) {
+        e.preventDefault();
+        handleLaunchRoute();
+      } else if (!modal && page === 'map') {
+        if (e.key === '1') setZoom('world');
+        else if (e.key === '2') setZoom('region');
+        else if (e.key === '3') setZoom('follow');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [modal, page, routeDraft, handleLaunchRoute]);
+
   const activePerformer: Performer | undefined = modal?.type === 'performer'
     ? state.performers.find(p => p.id === modal.id)
     : undefined;
   const activeRegion = state.world.regions[state.world.currentRegionId];
+  const scaleLabel = zoom === 'world' ? '大陆全图 128×128' : zoom === 'region' ? '疆域详图 10×' : '近景跟随测绘';
 
   return (
-    <div className="app-shell">
-      <SideRail
-        page={page}
-        onPage={setPage}
-        onOpenEngine={() => setModal({ type: 'engine' })}
-        onOpenCardbox={() => { setPage('caravan'); notify('请在下方「角色卡双栖指派台」导入并试配角色卡。'); }}
-        onOpenGuide={() => setModal({ type: 'guide' })}
-        onOpenSettings={() => void handleLoadQuick()}
-        unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
+    <div className="app-shell octo-shell">
+      {/* 第 0 层：永远全屏摊开在最底下的铜版画立体浮雕大地图 */}
+      <CartographyView
+        state={state}
+        zoom={zoom}
+        interactive={page === 'map' && !modal}
+        onZoom={setZoom}
+        routeDraft={routeDraft}
+        onRouteDraft={setRouteDraft}
+        evadeWar={evadeWar}
+        onToggleEvadeWar={() => setEvadeWar(v => !v)}
+        onOpenScout={poi => setModal({ type: 'scout', poi })}
+        onAssistSketchTo={handleAssistSketchTo}
       />
 
-      <Topbar
-        state={state}
+      {/* 第 1 层：当选单打开马车/物资/记录时，在地图中央展开半透明烟熏金框卷宗（底层地图依旧可见） */}
+      {page !== 'map' && (
+        <main id="main-stage" className="app-main octo-stage-overlay">
+          <div id="main-stage-sheet" className="vellum-sheet">
+            <VellumDogEar id="main-vellum-dogear" />
+            <PageHeading
+              page={page}
+              onCloseOverlay={() => setPage('map')}
+            />
+
+            {page === 'caravan' && (
+              <CaravanView
+                state={state}
+                onUpgradeWagon={wagonId => dispatch({ type: 'upgradeWagon', wagonId })}
+                onRepairWagon={wagonId => dispatch({ type: 'repairWagon', wagonId })}
+                onHireCandidate={candidateId => dispatch({ type: 'hireCandidate', candidateId })}
+                onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
+                onImportCardAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
+                onPlaceCardAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
+                onNotify={notify}
+              />
+            )}
+
+            {page === 'supplies' && (
+              <SuppliesView
+                state={state}
+                onSelectBeast={beast => setModal({ type: 'beast', beast })}
+                onBuySupply={handleBuySupply}
+                onNotify={notify}
+              />
+            )}
+
+            {page === 'records' && (
+              <RecordsView state={state} onNotify={notify} />
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* 第 2 层：巴洛克星盘罗盘顶徽、四周鎏金刻度雕花边框与底部比例尺铭牌 */}
+      <OrnateAtlasFrame regionName={activeRegion.name} scaleLabel={scaleLabel} />
+
+      {/* 第 3 层：左侧悬浮尖角炭褐选单横幅 */}
+      <SideRail
+        page={page}
         dirty={dirty}
+        onPage={setPage}
         onSave={() => void handleSave()}
         onNewRandom={() => {
           setRouteDraft(null);
+          setPage('map');
           dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
         }}
-        onOpenNotifications={() => setModal({ type: 'notifications' })}
-        notifCount={state.logs.length}
+        onOpenEngine={() => setModal({ type: 'engine' })}
+        onOpenCardbox={() => { setPage('caravan'); notify('可在右侧「角色卡双栖指派台」导入并试配角色卡。'); }}
+        onOpenGuide={() => setModal({ type: 'guide' })}
+        unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
       />
 
-      <main id="main-stage" className="app-main">
-        <div id="main-stage-sheet" className="vellum-sheet">
-          <VellumDogEar id="main-vellum-dogear" />
-          <PageHeading
-            page={page}
-            right={
-              <button id="heading-load-btn" type="button" className="btn sm" onClick={() => void handleLoadQuick()}>
-                读回最近手稿
-              </button>
-            }
-          />
+      {/* 第 4 层：右侧全高半透明烟熏墨色剧团状态与行军账房竖栏（透出底层海岸与山脉） */}
+      <RightTroupeLedger
+        state={state}
+        dirty={dirty}
+        notifCount={state.logs.length}
+        onLoadQuick={() => void handleLoadQuick()}
+        onOpenNotifications={() => setModal({ type: 'notifications' })}
+        onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
+        onOpenScout={poi => setModal({ type: 'scout', poi })}
+        onAssistSketchTo={handleAssistSketchTo}
+        onCrossBorder={targetRegionId => {
+          const res = dispatch({ type: 'crossBorder', targetRegionId });
+          if (res.ok) setRouteDraft(null);
+        }}
+      />
 
-          {page === 'map' && (
-            <CartographyView
-              state={state}
-              zoom={zoom}
-              onZoom={setZoom}
-              routeDraft={routeDraft}
-              onRouteDraft={setRouteDraft}
-              evadeWar={evadeWar}
-              onToggleEvadeWar={() => setEvadeWar(v => !v)}
-              onOpenScout={poi => setModal({ type: 'scout', poi })}
-              onCrossBorder={targetRegionId => {
-                const res = dispatch({ type: 'crossBorder', targetRegionId });
-                if (res.ok) setRouteDraft(null);
-              }}
-              onAssistSketchTo={handleAssistSketchTo}
-            />
-          )}
-
-          {page === 'caravan' && (
-            <CaravanView
-              state={state}
-              onUpgradeWagon={wagonId => dispatch({ type: 'upgradeWagon', wagonId })}
-              onRepairWagon={wagonId => dispatch({ type: 'repairWagon', wagonId })}
-              onHireCandidate={candidateId => dispatch({ type: 'hireCandidate', candidateId })}
-              onSelectPerformer={perf => setModal({ type: 'performer', id: perf.id })}
-              onImportCardAsPerformer={(card, role) => dispatch({ type: 'importCardAsPerformer', card, role })}
-              onPlaceCardAsNpc={(card, poiId) => dispatch({ type: 'placeCardAsNpc', card, poiId })}
-              onNotify={notify}
-            />
-          )}
-
-          {page === 'supplies' && (
-            <SuppliesView
-              state={state}
-              onSelectBeast={beast => setModal({ type: 'beast', beast })}
-              onBuySupply={handleBuySupply}
-              onNotify={notify}
-            />
-          )}
-
-          {page === 'records' && (
-            <RecordsView state={state} onNotify={notify} />
-          )}
-        </div>
-      </main>
-
+      {/* 第 5 层：底部纯黑实体键帽操作提示栏 */}
       <HelmBar
         state={state}
+        page={page}
         routeDraft={routeDraft}
         onClearRoute={() => setRouteDraft(null)}
         onLaunchRoute={handleLaunchRoute}
+        onReturnMap={() => setPage('map')}
         onOpenGuide={() => setModal({ type: 'guide' })}
       />
 

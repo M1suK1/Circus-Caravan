@@ -1,7 +1,5 @@
 /**
- * 羊皮纸舆图手绘风矢量图标绘制与可视范围（Viewport + 迷雾视野）裁剪工具。
- *
- * 为显示范围内的多格城郭、村寨、跨区关口与残响大篷车提供高辨识度 Canvas 2D 图标。
+ * 《八方旅人》风双墨边象牙菱形地标纹章、竖向黑针危级标牌与大篷车棋子图标。
  */
 import { CARAVAN_VISION_RADIUS, exploredMaskArray } from '../../domain/routeDraw.ts';
 import type { RegionGate, RegionMap, SettlementPoi } from '../../types.ts';
@@ -96,7 +94,44 @@ export function collectVisibleGateMarkers(
   });
 }
 
-/** 绘制多格城郭图标：羊皮底章 + 双侧垛口箭楼 + 中央尖顶主堡与旌旗 */
+function drawDiamondCrestBase(ctx: CanvasRenderingContext2D, r: number, active: boolean): void {
+  // 底部墨影
+  ctx.beginPath();
+  ctx.moveTo(0, -r + 2);
+  ctx.lineTo(r, 2);
+  ctx.lineTo(0, r + 2.5);
+  ctx.lineTo(-r, 2);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(18, 12, 8, 0.44)';
+  ctx.fill();
+
+  // 外层深炭黑铁墨框菱形
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.lineTo(r, 0);
+  ctx.lineTo(0, r);
+  ctx.lineTo(-r, 0);
+  ctx.closePath();
+  ctx.fillStyle = active ? '#fbf2dc' : '#ead9b7';
+  ctx.fill();
+  ctx.lineWidth = Math.max(1.6, r * 0.14);
+  ctx.strokeStyle = '#1b130d';
+  ctx.stroke();
+
+  // 内层细金铜版压线
+  const ir = r * 0.78;
+  ctx.beginPath();
+  ctx.moveTo(0, -ir);
+  ctx.lineTo(ir, 0);
+  ctx.lineTo(0, ir);
+  ctx.lineTo(-ir, 0);
+  ctx.closePath();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = active ? '#a87634' : '#7b6346';
+  ctx.stroke();
+}
+
+/** 八方旅人风多格城郭图标：双黑边象牙菱形底章 + 双塔城垣与尖顶主堡版画雕刻 */
 export function drawCityIcon(
   ctx: CanvasRenderingContext2D,
   px: number,
@@ -104,60 +139,39 @@ export function drawCityIcon(
   size: number,
   scouted: boolean,
 ): void {
-  const r = size * 0.54;
+  const r = size * 0.62;
   ctx.save();
   ctx.translate(px, py);
+  drawDiamondCrestBase(ctx, r, scouted);
 
-  // 羊皮底章圆盘与外墨圈
+  const u = size * 0.042;
+  ctx.fillStyle = scouted ? '#e7cba0' : '#cab592';
+  ctx.strokeStyle = '#22160e';
+  ctx.lineWidth = Math.max(1.1, size * 0.055);
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = scouted ? 'rgba(252, 241, 216, 0.96)' : 'rgba(232, 215, 184, 0.9)';
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.3, size * 0.075);
-  ctx.strokeStyle = scouted ? '#8c271e' : '#5e4934';
-  ctx.stroke();
-
-  const u = size * 0.045;
-  // 城墙与左右双塔楼
-  ctx.fillStyle = scouted ? '#ead0a2' : '#cbb48e';
-  ctx.strokeStyle = '#291a10';
-  ctx.lineWidth = Math.max(1.1, size * 0.06);
-  ctx.beginPath();
-  ctx.rect(-7.5 * u, -2 * u, 4 * u, 8.5 * u);
-  ctx.rect(3.5 * u, -2 * u, 4 * u, 8.5 * u);
-  ctx.rect(-4 * u, -0.5 * u, 8 * u, 7 * u);
+  ctx.rect(-7.2 * u, -1.8 * u, 3.8 * u, 7.8 * u);
+  ctx.rect(3.4 * u, -1.8 * u, 3.8 * u, 7.8 * u);
+  ctx.rect(-3.8 * u, -0.4 * u, 7.6 * u, 6.4 * u);
   ctx.fill();
   ctx.stroke();
 
-  // 中央主堡尖顶
   ctx.beginPath();
-  ctx.moveTo(-4.8 * u, -0.5 * u);
+  ctx.moveTo(-4.6 * u, -0.4 * u);
   ctx.lineTo(0, -7.8 * u);
-  ctx.lineTo(4.8 * u, -0.5 * u);
+  ctx.lineTo(4.6 * u, -0.4 * u);
   ctx.closePath();
-  ctx.fillStyle = scouted ? '#a63429' : '#735a43';
+  ctx.fillStyle = scouted ? '#9e3125' : '#66523e';
   ctx.fill();
   ctx.stroke();
 
-  // 塔顶小旗与城门拱洞
-  if (scouted) {
-    ctx.beginPath();
-    ctx.moveTo(0, -7.8 * u);
-    ctx.lineTo(0, -10.8 * u);
-    ctx.lineTo(4.2 * u, -9.4 * u);
-    ctx.lineTo(0, -8.2 * u);
-    ctx.fillStyle = '#d98f2b';
-    ctx.fill();
-  }
   ctx.beginPath();
-  ctx.arc(0, 6.5 * u, 2.1 * u, Math.PI, 0);
-  ctx.fillStyle = scouted ? '#3b2314' : '#5b4633';
+  ctx.arc(0, 6.0 * u, 1.9 * u, Math.PI, 0);
+  ctx.fillStyle = '#24170f';
   ctx.fill();
-
   ctx.restore();
 }
 
-/** 绘制荒原村寨图标：羊皮底章 + 斜顶木屋 + 烟囱与暖色门窗 */
+/** 八方旅人风荒原村寨图标：双黑边象牙菱形底章 + 斜顶木屋聚落版画 */
 export function drawVillageIcon(
   ctx: CanvasRenderingContext2D,
   px: number,
@@ -165,82 +179,127 @@ export function drawVillageIcon(
   size: number,
   scouted: boolean,
 ): void {
-  const r = size * 0.5;
+  const r = size * 0.56;
   ctx.save();
   ctx.translate(px, py);
+  drawDiamondCrestBase(ctx, r, scouted);
 
+  const u = size * 0.045;
+  ctx.fillStyle = scouted ? '#f2dfc0' : '#d2be9c';
+  ctx.strokeStyle = '#24170f';
+  ctx.lineWidth = Math.max(1.05, size * 0.055);
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = scouted ? 'rgba(251, 241, 219, 0.94)' : 'rgba(232, 216, 187, 0.88)';
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.1, size * 0.07);
-  ctx.strokeStyle = scouted ? '#9e5a24' : '#66513c';
-  ctx.stroke();
-
-  const u = size * 0.048;
-  // 烟囱
-  ctx.fillStyle = '#6e4e35';
-  ctx.fillRect(2.6 * u, -6.2 * u, 2.0 * u, 4.2 * u);
-
-  // 木屋墙体
-  ctx.fillStyle = scouted ? '#f3dfc0' : '#d5c09e';
-  ctx.strokeStyle = '#2b1b11';
-  ctx.lineWidth = Math.max(1.05, size * 0.06);
-  ctx.beginPath();
-  ctx.rect(-5.2 * u, -0.5 * u, 10.4 * u, 6.6 * u);
+  ctx.rect(-4.8 * u, -0.2 * u, 9.6 * u, 5.8 * u);
   ctx.fill();
   ctx.stroke();
 
-  // 人字茅草/木瓦斜顶
   ctx.beginPath();
-  ctx.moveTo(-7.0 * u, 0.2 * u);
-  ctx.lineTo(0, -6.6 * u);
-  ctx.lineTo(7.0 * u, 0.2 * u);
+  ctx.moveTo(-6.4 * u, 0.3 * u);
+  ctx.lineTo(0, -6.2 * u);
+  ctx.lineTo(6.4 * u, 0.3 * u);
   ctx.closePath();
-  ctx.fillStyle = scouted ? '#c76c2e' : '#7d6349';
+  ctx.fillStyle = scouted ? '#b86328' : '#735c44';
   ctx.fill();
   ctx.stroke();
 
-  // 暖光小屋门窗
-  ctx.fillStyle = scouted ? '#e8a238' : '#574331';
-  ctx.fillRect(-1.6 * u, 2.0 * u, 3.2 * u, 4.1 * u);
-
+  ctx.fillStyle = scouted ? '#d9922e' : '#4d3b2b';
+  ctx.fillRect(-1.4 * u, 1.8 * u, 2.8 * u, 3.7 * u);
   ctx.restore();
 }
 
-/** 绘制跨区关口石拱门界碑图标 */
+/** 绘制跨区边境石拱门菱形路标图标 */
 export function drawGateIcon(
   ctx: CanvasRenderingContext2D,
   px: number,
   py: number,
   size: number,
 ): void {
-  const u = size * 0.05;
+  const r = size * 0.52;
+  const u = size * 0.045;
   ctx.save();
   ctx.translate(px, py);
+  drawDiamondCrestBase(ctx, r, true);
 
+  ctx.strokeStyle = '#23160e';
+  ctx.fillStyle = '#ba7b2d';
+  ctx.lineWidth = 1.15;
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.48, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(250, 236, 206, 0.92)';
-  ctx.fill();
-  ctx.lineWidth = 1.3;
-  ctx.strokeStyle = '#9c5f19';
-  ctx.stroke();
-
-  ctx.strokeStyle = '#2d1b10';
-  ctx.fillStyle = '#c48332';
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.rect(-5.5 * u, -5 * u, 11 * u, 2.4 * u);
-  ctx.rect(-4.5 * u, -2.6 * u, 2.6 * u, 8.2 * u);
-  ctx.rect(1.9 * u, -2.6 * u, 2.6 * u, 8.2 * u);
+  ctx.rect(-5.0 * u, -4.4 * u, 10.0 * u, 2.2 * u);
+  ctx.rect(-4.1 * u, -2.2 * u, 2.4 * u, 7.2 * u);
+  ctx.rect(1.7 * u, -2.2 * u, 2.4 * u, 7.2 * u);
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 绘制《八方旅人》标志性「竖向黑针引线 + 半透明烟熏黑褐金线标牌 + 危级侧翼小标签」。
+ */
+export function drawOctopathBannerCallout(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  title: string,
+  badgeText?: string,
+  emphasized = false,
+): void {
+  ctx.save();
+  ctx.font = `${emphasized ? '700 13px' : '600 11.5px'} "Noto Serif SC", serif`;
+  const titleW = Math.max(54, ctx.measureText(title).width);
+  const badgeW = badgeText ? Math.max(46, badgeText.length * 8.5 + 12) : 0;
+  const boxW = titleW + 22 + (badgeW ? badgeW + 6 : 0);
+  const boxH = emphasized ? 23 : 20;
+  const needleLen = emphasized ? 17 : 12;
+  const boxTop = py - needleLen - boxH;
+  const boxLeft = px - boxW / 2;
+
+  // 竖向锋利黑针尖刺（Sunshade Catacombs / 诺布尔寇德 同款）
+  ctx.beginPath();
+  ctx.moveTo(px, py - 2);
+  ctx.lineTo(px - 3.2, py - needleLen);
+  ctx.lineTo(px + 3.2, py - needleLen);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(15, 11, 8, 0.94)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(224, 188, 122, 0.72)';
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+
+  // 半透明烟熏黑褐横幅底板 + 上下双金细线
+  ctx.fillStyle = emphasized ? 'rgba(16, 12, 9, 0.9)' : 'rgba(22, 17, 13, 0.82)';
+  ctx.fillRect(boxLeft, boxTop, boxW, boxH);
+  ctx.strokeStyle = emphasized ? 'rgba(236, 198, 126, 0.85)' : 'rgba(206, 172, 112, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(boxLeft, boxTop);
+  ctx.lineTo(boxLeft + boxW, boxTop);
+  ctx.moveTo(boxLeft, boxTop + boxH);
+  ctx.lineTo(boxLeft + boxW, boxTop + boxH);
+  ctx.stroke();
+
+  // 标题衬线白金文字
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = emphasized ? '#fff5df' : '#f2e4c8';
+  ctx.fillText(title, boxLeft + 10, boxTop + boxH / 2 + 0.5);
+
+  // 右侧危级 / 状态徽章（如「危级 LV.3」）
+  if (badgeText) {
+    const bx = boxLeft + 12 + titleW;
+    const by = boxTop + 3;
+    const bh = boxH - 6;
+    ctx.fillStyle = emphasized ? 'rgba(158, 49, 38, 0.88)' : 'rgba(62, 46, 30, 0.88)';
+    ctx.fillRect(bx, by, badgeW, bh);
+    ctx.font = '600 9.5px "JetBrains Mono", "Noto Sans SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fae7c0';
+    ctx.fillText(badgeText, bx + badgeW / 2, boxTop + boxH / 2 + 0.5);
+  }
 
   ctx.restore();
 }
 
-/** 绘制残响大篷车专属图标：拱顶红白马戏篷车 + 双木轮 + 巡游旗 + 檐角暖光风灯 */
+/** 绘制残响大篷车专属风灯篷车棋子图标 */
 export function drawCaravanIcon(
   ctx: CanvasRenderingContext2D,
   px: number,
@@ -251,93 +310,89 @@ export function drawCaravanIcon(
   ctx.save();
   ctx.translate(px, py);
 
-  // 底部暖金风灯光晕衬底
-  const glow = ctx.createRadialGradient(0, 0, size * 0.1, 0, 0, size * 0.78);
-  glow.addColorStop(0, 'rgba(255, 214, 112, 0.75)');
-  glow.addColorStop(0.55, 'rgba(218, 138, 42, 0.28)');
-  glow.addColorStop(1, 'rgba(218, 138, 42, 0)');
+  const glow = ctx.createRadialGradient(0, 0, size * 0.08, 0, 0, size * 0.84);
+  glow.addColorStop(0, 'rgba(255, 224, 128, 0.85)');
+  glow.addColorStop(0.52, 'rgba(222, 142, 42, 0.32)');
+  glow.addColorStop(1, 'rgba(222, 142, 42, 0)');
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.78, 0, Math.PI * 2);
+  ctx.arc(0, 0, size * 0.84, 0, Math.PI * 2);
   ctx.fillStyle = glow;
   ctx.fill();
 
-  // 地面投影
   ctx.beginPath();
-  ctx.ellipse(0, 8.5 * u, 10.5 * u, 3 * u, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(34, 19, 10, 0.35)';
+  ctx.ellipse(0, 8.6 * u, 11 * u, 3.2 * u, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(20, 12, 6, 0.48)';
   ctx.fill();
 
-  // 车顶迎风小彩旗
+  // 车顶迎风巡游三角旗
   ctx.beginPath();
   ctx.moveTo(-1 * u, -8.8 * u);
-  ctx.lineTo(-1 * u, -13.2 * u);
-  ctx.lineTo(5.2 * u, -11.3 * u);
+  ctx.lineTo(-1 * u, -13.5 * u);
+  ctx.lineTo(5.6 * u, -11.4 * u);
   ctx.lineTo(-1 * u, -9.6 * u);
-  ctx.fillStyle = '#f2be5c';
+  ctx.fillStyle = '#f5c462';
   ctx.fill();
-  ctx.strokeStyle = '#2a170c';
+  ctx.strokeStyle = '#1e1109';
   ctx.lineWidth = 1.1;
   ctx.stroke();
 
-  // 拱形马戏条纹大篷顶
+  // 拱形红白马戏大篷顶
   ctx.beginPath();
   ctx.moveTo(-9.5 * u, -0.8 * u);
-  ctx.bezierCurveTo(-9.5 * u, -9.2 * u, 8.5 * u, -9.2 * u, 8.5 * u, -0.8 * u);
+  ctx.bezierCurveTo(-9.5 * u, -9.4 * u, 8.5 * u, -9.4 * u, 8.5 * u, -0.8 * u);
   ctx.closePath();
-  ctx.fillStyle = '#fbf0d8';
+  ctx.fillStyle = '#fcf2dc';
   ctx.fill();
-  ctx.lineWidth = Math.max(1.3, size * 0.06);
-  ctx.strokeStyle = '#26150b';
+  ctx.lineWidth = Math.max(1.4, size * 0.062);
+  ctx.strokeStyle = '#1e1109';
   ctx.stroke();
 
-  // 篷布绯红条纹肋片
   ctx.beginPath();
   ctx.moveTo(-4.2 * u, -0.8 * u);
-  ctx.quadraticCurveTo(-2.5 * u, -8.2 * u, -0.5 * u, -8.6 * u);
+  ctx.quadraticCurveTo(-2.5 * u, -8.2 * u, -0.5 * u, -8.8 * u);
   ctx.quadraticCurveTo(1.5 * u, -8.2 * u, 3.2 * u, -0.8 * u);
   ctx.closePath();
-  ctx.fillStyle = '#b33629';
+  ctx.fillStyle = '#ad3326';
   ctx.fill();
 
-  // 木质车厢与舞台小窗
-  ctx.fillStyle = '#ce8d40';
-  ctx.strokeStyle = '#26150b';
+  // 篷车木厢与暖黄小窗
+  ctx.fillStyle = '#cc8a3c';
+  ctx.strokeStyle = '#1e1109';
   ctx.beginPath();
   ctx.rect(-8.8 * u, -0.8 * u, 16.6 * u, 6.8 * u);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#ffebad';
+  ctx.fillStyle = '#ffefba';
   ctx.fillRect(-3.0 * u, 0.8 * u, 5.0 * u, 3.4 * u);
   ctx.strokeRect(-3.0 * u, 0.8 * u, 5.0 * u, 3.4 * u);
 
-  // 车头伸出风灯杆与明亮风灯
+  // 车头悬挂暖光风灯
   ctx.beginPath();
   ctx.moveTo(7.8 * u, -1.2 * u);
-  ctx.lineTo(11.0 * u, -1.2 * u);
-  ctx.lineTo(11.0 * u, 1.4 * u);
-  ctx.strokeStyle = '#26150b';
+  ctx.lineTo(11.2 * u, -1.2 * u);
+  ctx.lineTo(11.2 * u, 1.5 * u);
+  ctx.strokeStyle = '#1e1109';
   ctx.lineWidth = 1.3;
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(11.0 * u, 2.6 * u, 2.2 * u, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff5be';
+  ctx.arc(11.2 * u, 2.7 * u, 2.3 * u, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff7c7';
   ctx.fill();
   ctx.stroke();
 
-  // 前后双木辐车轮
   for (const wx of [-5.2 * u, 4.4 * u]) {
     ctx.beginPath();
-    ctx.arc(wx, 6.6 * u, 3.4 * u, 0, Math.PI * 2);
-    ctx.fillStyle = '#3b2213';
+    ctx.arc(wx, 6.6 * u, 3.5 * u, 0, Math.PI * 2);
+    ctx.fillStyle = '#2d190d';
     ctx.fill();
     ctx.lineWidth = Math.max(1.2, size * 0.055);
-    ctx.strokeStyle = '#f2c879';
+    ctx.strokeStyle = '#f4cb7c';
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(wx, 6.6 * u, 1.1 * u, 0, Math.PI * 2);
+    ctx.arc(wx, 6.6 * u, 1.15 * u, 0, Math.PI * 2);
     ctx.fillStyle = '#faecd0';
     ctx.fill();
   }

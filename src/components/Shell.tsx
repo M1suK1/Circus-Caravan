@@ -2,39 +2,46 @@ import type { ReactNode } from 'react';
 import {
   Bell,
   BookOpen,
+  Building2,
   Caravan as CaravanIcon,
   ChevronRight,
+  Clock,
   Compass,
   Cpu,
+  Eye,
   Flame,
   FolderKanban,
+  Footprints,
   HelpCircle,
   Map as MapIcon,
   Package,
   RefreshCw,
+  Route,
   Save,
   ScrollText,
-  Settings2,
-  Shield,
   Sparkles,
-  Sun,
   Wrench,
+  X,
 } from 'lucide-react';
-import type { AppPage, CircusState, RouteEvaluation } from '../types.ts';
+import { CIRCUS_ROLE_LABELS } from '../domain/cardAdapter.ts';
+import { isTileExplored } from '../domain/routeDraw.ts';
+import type { AppPage, CircusState, Performer, RegionId, RouteEvaluation, SettlementPoi } from '../types.ts';
 import { CaravanCrestIcon } from './CaravanCrestIcon.tsx';
+import { isSettlementRevealed } from './Cartography/mapIcons.ts';
+import { GirlPortrait } from './GirlPortrait.tsx';
 
 const NAV_ITEMS: { id: AppPage; label: string; tone: 'crimson' | 'forest' | 'amber' | 'indigo'; Icon: typeof MapIcon }[] = [
-  { id: 'map', label: '地图', tone: 'crimson', Icon: MapIcon },
-  { id: 'caravan', label: '马车', tone: 'forest', Icon: CaravanIcon },
-  { id: 'supplies', label: '物资', tone: 'amber', Icon: Package },
-  { id: 'records', label: '记录', tone: 'indigo', Icon: ScrollText },
+  { id: 'map', label: '大陆舆图', tone: 'crimson', Icon: MapIcon },
+  { id: 'caravan', label: '大篷车队', tone: 'forest', Icon: CaravanIcon },
+  { id: 'supplies', label: '行囊兽笼', tone: 'amber', Icon: Package },
+  { id: 'records', label: '旅程编年', tone: 'indigo', Icon: ScrollText },
 ];
 
 const PAGE_HEADINGS: Record<AppPage, { kicker: string; title: string; subtitle: string; code: string }> = {
   map: {
     kicker: '舆图测绘 · 迷雾寻路',
     title: '风灯所照之处，即是归途。',
-    subtitle: '在古羊皮舆图上亲手划出前路：避开深水、断桥与焦土战线，探明沿途城郭与荒原村寨。',
+    subtitle: '在铜版古舆图上亲手划出前路：避开深水、断桥与焦土战线，探明沿途城郭与荒原村寨。',
     code: 'ATLAS // 128×128 & 10×',
   },
   caravan: {
@@ -59,195 +66,347 @@ const PAGE_HEADINGS: Record<AppPage, { kicker: string; title: string; subtitle: 
 
 export function SideRail({
   page,
+  dirty,
   onPage,
+  onSave,
+  onNewRandom,
   onOpenEngine,
   onOpenCardbox,
   onOpenGuide,
-  onOpenSettings,
   unreadCount,
 }: {
   page: AppPage;
+  dirty: boolean;
   onPage: (page: AppPage) => void;
+  onSave: () => void;
+  onNewRandom: () => void;
   onOpenEngine: () => void;
   onOpenCardbox: () => void;
   onOpenGuide: () => void;
-  onOpenSettings: () => void;
   unreadCount: number;
 }) {
   return (
-    <aside id="main-sidebar" className="side-rail" aria-label="主功能导航栏">
-      <button
-        id="brand-home"
-        type="button"
-        className="brand-mark"
-        title="残响大篷车 · 返回羊皮纸舆图"
-        aria-label="残响大篷车，返回地图"
-        onClick={() => onPage('map')}
-      >
-        <span className="brand-crest">
-          <CaravanCrestIcon size={28} />
-        </span>
-      </button>
-      <div className="rail-rule" />
+    <aside id="main-sidebar" className="side-rail octo-left-menu" aria-label="八方旅人式主选单栏">
+      <div className="octo-menu-header">
+        <button
+          id="brand-home"
+          type="button"
+          className="octo-brand-btn"
+          title="残响大篷车 · 返回全屏舆图"
+          aria-label="残响大篷车，返回大陆舆图"
+          onClick={() => onPage('map')}
+        >
+          <span className="brand-crest">
+            <CaravanCrestIcon size={22} />
+          </span>
+          <span className="octo-menu-title">选单</span>
+        </button>
+        <div className="octo-stud-rule" aria-hidden="true">
+          <i /><i /><i /><i /><i />
+        </div>
+      </div>
+
       <nav aria-label="核心模块切换">
-        {NAV_ITEMS.map(({ id, label, tone, Icon }) => (
-          <button
-            key={id}
-            id={`nav-${id}`}
-            type="button"
-            aria-current={page === id ? 'page' : undefined}
-            className={`silk-bookmark tone-${tone} ${page === id ? 'active' : ''}`}
-            onClick={() => onPage(id)}
-          >
-            <span className="silk-bookmark-ribbon" aria-hidden="true" />
-            <span className="silk-bookmark-content">
-              <Icon size={16} strokeWidth={1.85} />
-              <span>{label}</span>
-            </span>
-          </button>
-        ))}
+        {NAV_ITEMS.map(({ id, label, tone, Icon }) => {
+          const active = page === id;
+          return (
+            <button
+              key={id}
+              id={`nav-${id}`}
+              type="button"
+              aria-current={active ? 'page' : undefined}
+              className={`silk-bookmark tone-${tone} ${active ? 'active' : ''}`}
+              onClick={() => onPage(id)}
+            >
+              <span className="silk-bookmark-ribbon" aria-hidden="true" />
+              <span className="silk-bookmark-content">
+                <span className={`octo-cursor ${active ? 'on' : ''}`} aria-hidden="true">
+                  <ChevronRight size={13} strokeWidth={2.6} />
+                </span>
+                <Icon size={14} strokeWidth={1.85} />
+                <span>{label}</span>
+              </span>
+            </button>
+          );
+        })}
       </nav>
-      <div className="rail-bottom">
-        <button
-          id="open-llm-console"
-          type="button"
-          className="rail-utility"
-          title="叙事引擎与提示词控制台"
-          aria-label="打开叙事引擎控制台"
-          onClick={onOpenEngine}
-        >
-          <Cpu size={16} />
+
+      <div className="octo-menu-divider" aria-hidden="true" />
+
+      <div className="octo-sub-commands" role="group" aria-label="系统与手札指令">
+        <button id="open-llm-console" type="button" className="silk-bookmark sub" onClick={onOpenEngine}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <Cpu size={13} />
+            <span>叙事引擎</span>
+          </span>
         </button>
-        <button
-          id="open-cardbox"
-          type="button"
-          className="rail-utility"
-          title="角色卡手札库"
-          aria-label="打开角色卡库"
-          onClick={onOpenCardbox}
-        >
-          <FolderKanban size={16} />
+        <button id="open-cardbox" type="button" className="silk-bookmark sub" onClick={onOpenCardbox}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <FolderKanban size={13} />
+            <span>角色卡库</span>
+          </span>
         </button>
-        <button
-          id="open-guide"
-          type="button"
-          className="rail-utility"
-          title="冒险手记与地图图例"
-          aria-label="打开冒险指南"
-          onClick={onOpenGuide}
-        >
-          <BookOpen size={16} />
-          {unreadCount > 0 && <em className="rail-badge">{unreadCount}</em>}
+        <button id="open-guide" type="button" className="silk-bookmark sub" onClick={onOpenGuide}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <BookOpen size={13} />
+            <span>测绘指南</span>
+            {unreadCount > 0 && <em className="rail-badge">{unreadCount}</em>}
+          </span>
         </button>
-        <button
-          id="open-settings"
-          type="button"
-          className="rail-utility"
-          title="快速读取本地归档"
-          aria-label="读取存档设置"
-          onClick={onOpenSettings}
-        >
-          <Settings2 size={16} />
+        <button id="btn-save-game" type="button" className="silk-bookmark sub" onClick={onSave}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <Save size={13} />
+            <span>{dirty ? '归档手稿 *' : '归档手稿'}</span>
+          </span>
         </button>
-        <span className="rail-edition">巡游手记</span>
+        <button id="btn-new-random" type="button" className="silk-bookmark sub" onClick={onNewRandom}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <RefreshCw size={13} />
+            <span>随机重开</span>
+          </span>
+        </button>
       </div>
     </aside>
   );
 }
 
-export function Topbar({
+export function RightTroupeLedger({
   state,
   dirty,
-  onSave,
-  onNewRandom,
-  onOpenNotifications,
   notifCount,
+  onLoadQuick,
+  onOpenNotifications,
+  onSelectPerformer,
+  onOpenScout,
+  onAssistSketchTo,
+  onCrossBorder,
 }: {
   state: CircusState;
   dirty: boolean;
-  onSave: () => void;
-  onNewRandom: () => void;
-  onOpenNotifications: () => void;
   notifCount: number;
+  onLoadQuick: () => void;
+  onOpenNotifications: () => void;
+  onSelectPerformer: (performer: Performer) => void;
+  onOpenScout: (poi: SettlementPoi) => void;
+  onAssistSketchTo: (tx: number, ty: number) => void;
+  onCrossBorder: (targetRegionId: RegionId) => void;
 }) {
   const region = state.world.regions[state.world.currentRegionId];
+  const map = region.map;
   const avgDurability = Math.round(
     state.caravan.wagons.reduce((sum, w) => sum + w.durability, 0) / Math.max(1, state.caravan.wagons.length),
   );
-  const slotLabel = state.timeSlot === 'dawn' ? '拂晓启程' : state.timeSlot === 'noon' ? '烈日赶路' : state.timeSlot === 'dusk' ? '暮色扎营' : '灯火夜演';
+  const slotLabel = state.timeSlot === 'dawn' ? '拂晓' : state.timeSlot === 'noon' ? '正午' : state.timeSlot === 'dusk' ? '暮色' : '夜演';
+  const currentPoi = state.world.currentPoiId && map ? map.pois[state.world.currentPoiId] : undefined;
+
+  const discoveredPois = map
+    ? Object.values(map.pois).filter(poi => isSettlementRevealed(map, poi, state.world.pos))
+    : [];
+  const gates = map
+    ? map.gates.map(g => ({
+        ...g,
+        dist: Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y),
+        seen: isTileExplored(map, g.x, g.y) || Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y) <= 12,
+      }))
+    : [];
 
   return (
-    <header id="main-topbar" className="topbar">
-      <div className="wordmark">
-        <strong>{state.caravan.name}<span className="logo-dot">.</span></strong>
-        <span>CIRCUS CARAVAN</span>
+    <aside id="right-troupe-ledger" className="octo-right-ledger" aria-label="右侧半透明剧团状态与行军账房">
+      {/* 右上角计时、巡游金币与核心补给速览 */}
+      <div className="octo-ledger-top">
+        <div className="octo-chrono-row">
+          <span className="octo-chrono">
+            <Clock size={13} />
+            <b>第 {String(state.day).padStart(3, '0')} 日 · {slotLabel}</b>
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button id="heading-load-btn" type="button" className="octo-mini-btn" onClick={onLoadQuick}>
+              读档
+            </button>
+            <button
+              id="open-notifications"
+              type="button"
+              className="octo-bell-btn"
+              aria-label="打开风灯告警与通知中心"
+              title={dirty ? '存在未归档进度 · 查看日志通知' : '查看日志通知'}
+              onClick={onOpenNotifications}
+            >
+              <Bell size={13} />
+              {notifCount > 0 && <span className="notif-dot" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="octo-gold-row" title={`隐居目标 ${state.retirement.targetGold.toLocaleString('zh-CN')} 金币`}>
+          <span className="octo-currency-mark"><Sparkles size={13} />巡游金</span>
+          <strong>{state.gold.toLocaleString('zh-CN')}</strong>
+        </div>
+
+        <div className="octo-supply-strip" role="group" aria-label="行军物资余量">
+          <span><Package size={11} />粮/料 <b>{state.supplies.rations}/{state.supplies.fodder}</b></span>
+          <span><Flame size={11} />灯油 <b>{state.supplies.fuel}</b></span>
+          <span><Wrench size={11} />车况 <b>{avgDurability}%</b></span>
+        </div>
       </div>
 
-      <div className="scene-time">
-        <Sun size={16} strokeWidth={1.7} />
-        <div>
-          <span className="eyebrow">第 {state.day} 日 · {slotLabel}</span>
-          <strong>{region.name}</strong>
-        </div>
+      {/* 中部：八方旅人式剧团成员微缩立绘、等级与 HP/SP 双色状态条 */}
+      <div className="octo-section-label">
+        <span>随行剧团成员</span>
+        <small>{state.performers.length}/{state.caravan.maxSeats} 席</small>
+      </div>
+      <div className="octo-party-list" role="list">
+        {state.performers.map(perf => {
+          const hpPct = Math.max(0, Math.min(100, Math.round((perf.hp / Math.max(1, perf.maxHp)) * 100)));
+          const spPct = Math.max(0, Math.min(100, Math.round(perf.morale)));
+          return (
+            <button
+              key={perf.id}
+              id={`ledger-performer-${perf.id}`}
+              type="button"
+              role="listitem"
+              className="octo-member-row"
+              title="点击开启篝火夜谈与舞台换装"
+              onClick={() => onSelectPerformer(perf)}
+            >
+              <div className="octo-member-sprite">
+                <GirlPortrait girl={perf} variant="avatar" />
+              </div>
+              <div className="octo-member-stats">
+                <div className="octo-member-head">
+                  <strong>{perf.name}</strong>
+                  <span className="octo-role-tag">{CIRCUS_ROLE_LABELS[perf.role]}</span>
+                  <b className="octo-lv">LV. <em>{perf.level}</em></b>
+                </div>
+
+                <div className="octo-stat-line">
+                  <small>HP</small>
+                  <b>{perf.hp}<span>/{perf.maxHp}</span></b>
+                </div>
+                <div className="octo-hp-bar" aria-hidden="true">
+                  <i style={{ width: `${hpPct}%` }} />
+                </div>
+
+                <div className="octo-stat-line">
+                  <small>士气</small>
+                  <b>{perf.morale}<span>/100</span></b>
+                </div>
+                <div className="octo-sp-bar" aria-hidden="true">
+                  <i style={{ width: `${spPct}%` }} />
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="top-resources" role="group" aria-label="核心资源速览">
-        <div className="resource gold" title={`隐居基金目标 ${state.retirement.targetGold.toLocaleString()} 金币`}>
-          <Sparkles size={14} />
-          <span>
-            <small>金币</small>
-            <b>{state.gold.toLocaleString('zh-CN')}<em>/{(state.retirement.targetGold / 1000).toFixed(0)}k</em></b>
-          </span>
-        </div>
-        <div className="resource">
-          <Package size={14} />
-          <span>
-            <small>粮/料</small>
-            <b>{state.supplies.rations}<em>/{state.supplies.fodder}</em></b>
-          </span>
-        </div>
-        <div className="resource">
-          <Flame size={14} />
-          <span>
-            <small>灯油</small>
-            <b>{state.supplies.fuel}</b>
-          </span>
-        </div>
-        <div className="resource durability">
-          <Wrench size={14} />
-          <span>
-            <small>耐久</small>
-            <b>{avgDurability}%</b>
-          </span>
-        </div>
-
-        <span id="save-status-pill" className={`save-indicator ${dirty ? 'dirty' : ''}`}>
-          <i />{dirty ? '未归档' : '已归档'}
-        </span>
-
-        <button id="btn-save-game" type="button" className="btn sm" onClick={onSave}>
-          <Save size={12} />存档
-        </button>
-        <button id="btn-new-random" type="button" className="btn sm" title="随机出生大区新开一局" onClick={onNewRandom}>
-          <RefreshCw size={12} />随机重开
-        </button>
-        <button
-          id="open-notifications"
-          type="button"
-          className="icon-btn"
-          aria-label="打开风灯告警与通知中心"
-          title="风灯告警与通知"
-          onClick={onOpenNotifications}
-        >
-          <Bell size={14} />
-          {notifCount > 0 && <span className="notif-dot" />}
-        </button>
+      {/* 下部：当前疆域驻地侦查与邻近据点/关口快捷调度台 */}
+      <div className="octo-section-label">
+        <span>{region.name} · 斥候手札</span>
+        <small>危级 LV.{region.dangerTier}</small>
       </div>
-    </header>
+
+      <div className="octo-recon-deck">
+        {currentPoi && (
+          <div className="octo-recon-card active-poi">
+            <div className="octo-recon-head">
+              <span><Building2 size={12} />驻扎：{currentPoi.scouted && currentPoi.details ? currentPoi.details.name : currentPoi.placeholderName}</span>
+              <button
+                id="scout-current-poi-btn"
+                type="button"
+                className="octo-inline-action primary"
+                onClick={() => onOpenScout(currentPoi)}
+              >
+                {currentPoi.scouted ? <><Eye size={11} />卷宗</> : <><Sparkles size={11} />侦查</>}
+              </button>
+            </div>
+            {currentPoi.scouted && currentPoi.details && (
+              <p className="octo-recon-desc">{currentPoi.details.summary}</p>
+            )}
+          </div>
+        )}
+
+        <div className="octo-recon-subhead">
+          <Footprints size={11} />
+          <span>已探明聚落 ({discoveredPois.length}) 与边境关口</span>
+        </div>
+
+        <div className="octo-recon-list">
+          {discoveredPois.map(poi => (
+            <div key={poi.id} className="octo-recon-item">
+              <div className="octo-recon-info">
+                <b>{poi.scouted && poi.details ? poi.details.name : poi.placeholderName}</b>
+                <small>{poi.kind === 'city' ? '城郭' : '村寨'} · ({poi.x},{poi.y})</small>
+              </div>
+              <div className="octo-recon-btns">
+                <button
+                  id={`assist-route-${poi.id}`}
+                  type="button"
+                  className="octo-inline-action"
+                  onClick={() => onAssistSketchTo(poi.x, poi.y)}
+                >
+                  <Route size={10} />引线
+                </button>
+                <button
+                  id={`scout-list-${poi.id}`}
+                  type="button"
+                  className={`octo-inline-action ${poi.scouted ? '' : 'primary'}`}
+                  onClick={() => onOpenScout(poi)}
+                >
+                  {poi.scouted ? '详览' : '侦查'}
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {gates.map(gate => (
+            <div key={gate.targetRegionId} className="octo-recon-item gate">
+              <div className="octo-recon-info">
+                <b><Compass size={10} /> 往 {state.world.regions[gate.targetRegionId].name}</b>
+                <small>{gate.seen ? `距 ${Math.round(gate.dist)} 里` : '迷雾未探明'}</small>
+              </div>
+              {gate.dist <= 4 ? (
+                <button
+                  id={`cross-border-${gate.targetRegionId}`}
+                  type="button"
+                  className="octo-inline-action primary"
+                  onClick={() => onCrossBorder(gate.targetRegionId)}
+                >
+                  出境展开
+                </button>
+              ) : gate.seen ? (
+                <button
+                  id={`assist-gate-${gate.targetRegionId}`}
+                  type="button"
+                  className="octo-inline-action"
+                  onClick={() => onAssistSketchTo(gate.x, gate.y)}
+                >
+                  引线
+                </button>
+              ) : (
+                <span className="octo-fog-tag">未探明</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </aside>
   );
 }
 
-export function PageHeading({ page, right }: { page: AppPage; right?: ReactNode }) {
+export function PageHeading({
+  page,
+  onCloseOverlay,
+  right,
+}: {
+  page: AppPage;
+  onCloseOverlay?: () => void;
+  right?: ReactNode;
+}) {
   const meta = PAGE_HEADINGS[page];
   return (
     <div className="page-heading">
@@ -261,22 +420,39 @@ export function PageHeading({ page, right }: { page: AppPage; right?: ReactNode 
         <h1>{meta.title}</h1>
         <p>{meta.subtitle}</p>
       </div>
-      {right}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {right}
+        {onCloseOverlay && (
+          <button
+            id="close-stage-overlay-btn"
+            type="button"
+            className="btn sm"
+            title="收起卷宗返回全屏舆图 (ESC)"
+            onClick={onCloseOverlay}
+          >
+            <X size={12} />返回舆图
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 export function HelmBar({
   state,
+  page,
   routeDraft,
   onClearRoute,
   onLaunchRoute,
+  onReturnMap,
   onOpenGuide,
 }: {
   state: CircusState;
+  page: AppPage;
   routeDraft: RouteEvaluation | null;
   onClearRoute: () => void;
   onLaunchRoute: () => void;
+  onReturnMap: () => void;
   onOpenGuide: () => void;
 }) {
   const region = state.world.regions[state.world.currentRegionId];
@@ -285,34 +461,35 @@ export function HelmBar({
   const poiLabel = poi ? (poi.scouted && poi.details ? poi.details.name : poi.placeholderName) : '荒野扎营中';
 
   return (
-    <footer id="bottom-helm-bar" className="helm-bar">
+    <footer id="bottom-helm-bar" className="helm-bar octo-bottom-bar">
       <div className="helm-status">
-        <Shield size={14} style={{ color: '#e6a94e', flexShrink: 0 }} />
         {routeDraft && routeDraft.distanceTiles > 0 ? (
           <span>
-            <b>已绘路线 {routeDraft.distanceTiles} 里</b> · 均速 ×{routeDraft.avgSpeedMultiplier} · 预计 {routeDraft.travelDays} 日 ·
+            <b>已绘墨线 {routeDraft.distanceTiles} 里</b> · 均速 ×{routeDraft.avgSpeedMultiplier} · 预计 {routeDraft.travelDays} 日 ·
             消耗 口粮 {routeDraft.rationsCost} / 灯油 {routeDraft.fuelCost} / 车损 ~{routeDraft.durabilityCost}
             {routeDraft.blocked && <em style={{ color: '#f07c6e', marginLeft: 8, fontStyle: 'normal' }}>（{routeDraft.blockReason}）</em>}
           </span>
+        ) : page !== 'map' ? (
+          <span>
+            正在查阅「<b>{NAV_ITEMS.find(n => n.id === page)?.label}</b>」卷宗 · 底层舆图保持实时展开
+          </span>
         ) : (
           <span>
-            当前驻地：<b>{region.name}</b>（{Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}）· {poiLabel} · 在区域或跟随地图上按住拖拽即可划线定路
+            请选择选单项目，或在舆图上拖拽绘制路线 · 当前：<b>{region.name}</b>（{Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}）· {poiLabel}
           </span>
         )}
       </div>
+
       <div className="helm-controls">
-        <button id="helm-help-btn" type="button" className="btn sm" onClick={onOpenGuide}>
-          <HelpCircle size={12} />测绘指南
-        </button>
         {routeDraft && routeDraft.distanceTiles > 0 && (
           <>
-            <button id="route-clear-btn" type="button" className="btn sm" onClick={onClearRoute}>
+            <button id="route-clear-btn" type="button" className="octo-bar-action" onClick={onClearRoute}>
               擦除墨线
             </button>
             <button
               id="route-launch-btn"
               type="button"
-              className="btn sm primary"
+              className="octo-bar-action primary"
               disabled={routeDraft.validPoints.length < 2}
               onClick={onLaunchRoute}
             >
@@ -320,6 +497,30 @@ export function HelmBar({
             </button>
           </>
         )}
+
+        <div className="octo-keyhints" aria-label="快捷键操作提示">
+          <span className="octo-hint-item">
+            <kbd className="octo-keycap">1</kbd>
+            <kbd className="octo-keycap">2</kbd>
+            <kbd className="octo-keycap">3</kbd>
+            <em>视距</em>
+          </span>
+          <span className="octo-hint-item">
+            <kbd className="octo-keycap">拖拽</kbd>
+            <em>绘路</em>
+          </span>
+          <span className="octo-hint-item">
+            <kbd className="octo-keycap">Enter</kbd>
+            <em>启程</em>
+          </span>
+          <button id="helm-esc-btn" type="button" className="octo-hint-btn" onClick={page !== 'map' ? onReturnMap : onOpenGuide}>
+            <kbd className="octo-keycap">ESC</kbd>
+            <em>{page !== 'map' ? '返回舆图' : '指南'}</em>
+          </button>
+          <button id="helm-help-btn" type="button" className="octo-hint-btn" onClick={onOpenGuide}>
+            <HelpCircle size={12} />
+          </button>
+        </div>
       </div>
     </footer>
   );

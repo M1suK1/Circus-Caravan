@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2,
   Compass,
   Eye,
-  Footprints,
   Globe,
   LocateFixed,
   MapPin,
-  Navigation2,
   Route,
   ShieldAlert,
   Sparkles,
-  Trees,
+  X,
 } from 'lucide-react';
 import { REGION_IDS } from '../../content/regions.ts';
 import { regionTerrainAt } from '../../domain/regionGen.ts';
 import { isTileExplored } from '../../domain/routeDraw.ts';
-import type { CircusState, MapZoomMode, RegionId, RouteEvaluation, SettlementPoi } from '../../types.ts';
+import { worldRegionAt } from '../../domain/worldGen.ts';
+import type { CircusState, MapZoomMode, RouteEvaluation, SettlementPoi } from '../../types.ts';
 import { LegendCaravanSvg, LegendCitySvg, LegendVillageSvg } from '../CaravanCrestIcon.tsx';
 import { isSettlementRevealed } from './mapIcons.ts';
 import { renderCartographyCanvas } from './mapRenderer.ts';
@@ -31,7 +29,7 @@ const TERRAIN_CN: Record<string, string> = {
   bridge: '跨河木桥',
   border_gate: '跨区关口',
   wasteland: '荒野废土',
-  road: '石砌干道',
+  road: '石砌古道',
   forest: '幽暗密林',
   swamp: '腐雾泥沼',
   mountain: '险峻山脊',
@@ -44,33 +42,44 @@ const TERRAIN_CN: Record<string, string> = {
 export function CartographyView({
   state,
   zoom,
+  interactive,
   onZoom,
   routeDraft,
   onRouteDraft,
   evadeWar,
   onToggleEvadeWar,
   onOpenScout,
-  onCrossBorder,
   onAssistSketchTo,
 }: {
   state: CircusState;
   zoom: MapZoomMode;
+  interactive: boolean;
   onZoom: (mode: MapZoomMode) => void;
   routeDraft: RouteEvaluation | null;
   onRouteDraft: (draft: RouteEvaluation | null) => void;
   evadeWar: boolean;
   onToggleEvadeWar: () => void;
   onOpenScout: (poi: SettlementPoi) => void;
-  onCrossBorder: (targetRegionId: RegionId) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const downClientRef = useRef<{ x: number; y: number } | null>(null);
+  const [focusedPoiId, setFocusedPoiId] = useState<string | null>(null);
+  const [cursorLabel, setCursorLabel] = useState<string>('');
+
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
-  const loadedCount = useMemo(() => REGION_IDS.filter(id => Boolean(state.world.regions[id].map)).length, [state.world.regions]);
+  const loadedCount = useMemo(
+    () => REGION_IDS.filter(id => Boolean(state.world.regions[id].map)).length,
+    [state.world.regions],
+  );
 
   const sketch = useRouteSketch(state, zoom, evadeWar, onRouteDraft);
+
+  useEffect(() => {
+    setFocusedPoiId(null);
+  }, [state.world.currentRegionId, state.world.seed, zoom]);
 
   const syncAndRender = useCallback(() => {
     const canvas = canvasRef.current;
@@ -78,8 +87,8 @@ export function CartographyView({
     if (!canvas || !host) return;
     const rect = host.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(480, Math.round(rect.width * dpr));
-    const h = Math.max(280, Math.round(rect.height * dpr));
+    const w = Math.max(640, Math.round(rect.width * dpr));
+    const h = Math.max(360, Math.round(rect.height * dpr));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -105,263 +114,180 @@ export function CartographyView({
   const currentTerrain = map
     ? regionTerrainAt(map, Math.round(state.world.pos.x), Math.round(state.world.pos.y))
     : 'wasteland';
-  const [cursorLabel, setCursorLabel] = useState<string>('');
 
-  const visiblePois = useMemo(() => {
-    if (!map) return [];
-    return Object.values(map.pois).filter(poi => isSettlementRevealed(map, poi, state.world.pos));
-  }, [map, state.world.pos]);
-
-  const reachableGates = useMemo(() => {
-    if (!map) return [];
-    return map.gates.map(g => ({
-      ...g,
-      dist: Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y),
-      seen: isTileExplored(map, g.x, g.y) || Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y) <= 12,
-    }));
-  }, [map, state.world.pos.x, state.world.pos.y]);
-
-  const currentPoi = state.world.currentPoiId && map ? map.pois[state.world.currentPoiId] : undefined;
+  const focusedPoi = focusedPoiId && map ? map.pois[focusedPoiId] : undefined;
 
   return (
-    <div className="atlas-layout">
-      <section className="atlas-stage-card" aria-label="羊皮纸测绘地图区">
-        <div className="atlas-toolbar">
-          <div className="silk-tab-row" role="tablist" aria-label="地图层级切换">
-            <button
-              id="map-zoom-world"
-              type="button"
-              role="tab"
-              aria-selected={zoom === 'world'}
-              className={`silk-tab tone-indigo ${zoom === 'world' ? 'active' : ''}`}
-              onClick={() => onZoom('world')}
-            >
-              <Globe size={12} /><span>世界地图 (128×128)</span>
-            </button>
-            <button
-              id="map-zoom-region"
-              type="button"
-              role="tab"
-              aria-selected={zoom === 'region'}
-              className={`silk-tab ${zoom === 'region' ? 'active' : ''}`}
-              onClick={() => onZoom('region')}
-            >
-              <Compass size={12} /><span>区域地图 (10×放大)</span>
-            </button>
-            <button
-              id="map-zoom-follow"
-              type="button"
-              role="tab"
-              aria-selected={zoom === 'follow'}
-              className={`silk-tab tone-amber ${zoom === 'follow' ? 'active' : ''}`}
-              onClick={() => onZoom('follow')}
-            >
-              <LocateFixed size={12} /><span>跟随马车周边</span>
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 6 }}>
-            <button
-              id="map-evade-war-toggle"
-              type="button"
-              className={`btn sm ${evadeWar ? 'amber' : ''}`}
-              aria-pressed={evadeWar}
-              onClick={onToggleEvadeWar}
-              title="开启后采用熄灯绕行策略：速度降低但避开交火盘查、节省灯油"
-            >
-              <ShieldAlert size={12} />{evadeWar ? '战区熄灯潜行：开' : '常规行军姿态'}
-            </button>
-            <span className="wax-pill">已加载大区 {loadedCount}/9</span>
-          </div>
-        </div>
-
-        <div ref={viewportRef} className="atlas-viewport">
-          <canvas
-            id="cartography-canvas"
-            ref={canvasRef}
-            className={`atlas-canvas ${zoom === 'world' ? 'pan-mode' : ''}`}
-            onPointerDown={sketch.onPointerDown}
-            onPointerMove={e => {
-              sketch.onPointerMove(e);
-              if (map && zoom !== 'world') {
-                const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
-                if (pt) {
-                  const gx = Math.round(pt.x);
-                  const gy = Math.round(pt.y);
-                  const explored = isTileExplored(map, gx, gy);
-                  const t = regionTerrainAt(map, gx, gy);
-                  setCursorLabel(
-                    t === 'outside'
-                      ? '疆域之外'
-                      : explored
-                        ? `光标 (${gx},${gy}) · ${TERRAIN_CN[t] ?? t}`
-                        : `光标 (${gx},${gy}) · 未探明迷雾`,
-                  );
-                }
-              } else {
-                setCursorLabel('');
+    <div id="octo-atlas-underlay" className={`octo-atlas-underlay ${interactive ? '' : 'dimmed'}`}>
+      <div ref={viewportRef} className="atlas-viewport">
+        <canvas
+          id="cartography-canvas"
+          ref={canvasRef}
+          className={`atlas-canvas ${zoom === 'world' ? 'pan-mode' : ''}`}
+          onPointerDown={e => {
+            if (!interactive) return;
+            downClientRef.current = { x: e.clientX, y: e.clientY };
+            sketch.onPointerDown(e);
+          }}
+          onPointerMove={e => {
+            if (!interactive) return;
+            sketch.onPointerMove(e);
+            if (map && zoom !== 'world') {
+              const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
+              if (pt) {
+                const gx = Math.round(pt.x);
+                const gy = Math.round(pt.y);
+                const explored = isTileExplored(map, gx, gy);
+                const t = regionTerrainAt(map, gx, gy);
+                setCursorLabel(
+                  t === 'outside'
+                    ? '疆域之外'
+                    : explored
+                      ? `(${gx},${gy}) ${TERRAIN_CN[t] ?? t}`
+                      : `(${gx},${gy}) 云雾未探明`,
+                );
               }
-            }}
-            onPointerLeave={() => setCursorLabel('')}
-            onPointerUp={sketch.onPointerUp}
-          />
+            } else {
+              setCursorLabel('');
+            }
+          }}
+          onPointerLeave={() => setCursorLabel('')}
+          onPointerUp={e => {
+            if (!interactive) return;
+            sketch.onPointerUp(e);
+            const start = downClientRef.current;
+            downClientRef.current = null;
+            // 轻点地图（位移 < 6px）：世界全图点当前疆域直入 10× 详图；疆域图点菱形地标弹出斥候便签
+            if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) {
+              const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
+              if (pt && zoom === 'world') {
+                const clickedReg = worldRegionAt(state.world.worldMap, Math.floor(pt.x), Math.floor(pt.y));
+                if (clickedReg === state.world.currentRegionId) {
+                  onZoom('region');
+                }
+              } else if (pt && map && zoom !== 'world') {
+                const hit = Object.values(map.pois).find(
+                  poi => isSettlementRevealed(map, poi, state.world.pos) && Math.hypot(poi.x + 0.5 - pt.x, poi.y + 0.5 - pt.y) <= 4.2,
+                );
+                if (hit) {
+                  onRouteDraft(null);
+                  setFocusedPoiId(hit.id);
+                }
+              }
+            }
+          }}
+        />
 
-          <div className="atlas-overlay-hud">
-            <div className="hud-top">
-              <div className="hud-coord-badge">
-                <MapPin size={12} style={{ color: 'var(--crimson)' }} />
-                <span>
-                  {region.name} · 大篷车 ({Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]}
-                  {cursorLabel ? ` ｜ ${cursorLabel}` : ''}
-                </span>
-              </div>
-              <div className="hud-compass" aria-hidden="true">
-                <Navigation2 size={14} style={{ color: 'var(--crimson)', transform: 'rotate(20deg)' }} />
-                <span style={{ fontSize: 9.5 }}>北 · N</span>
-              </div>
+        {interactive && (
+          <div className="octo-map-hud">
+            {/* 左上悬浮视距与潜行姿态控制条（避开左侧选单与顶部中央星盘） */}
+            <div className="octo-zoom-cluster" role="tablist" aria-label="舆图视距切换">
+              <button
+                id="map-zoom-world"
+                type="button"
+                role="tab"
+                aria-selected={zoom === 'world'}
+                className={`octo-zoom-pill ${zoom === 'world' ? 'active' : ''}`}
+                onClick={() => onZoom('world')}
+              >
+                <Globe size={12} /><span>1 · 大陆全图</span>
+              </button>
+              <button
+                id="map-zoom-region"
+                type="button"
+                role="tab"
+                aria-selected={zoom === 'region'}
+                className={`octo-zoom-pill ${zoom === 'region' ? 'active' : ''}`}
+                onClick={() => onZoom('region')}
+              >
+                <Compass size={12} /><span>2 · 疆域 10×</span>
+              </button>
+              <button
+                id="map-zoom-follow"
+                type="button"
+                role="tab"
+                aria-selected={zoom === 'follow'}
+                className={`octo-zoom-pill ${zoom === 'follow' ? 'active' : ''}`}
+                onClick={() => onZoom('follow')}
+              >
+                <LocateFixed size={12} /><span>3 · 跟随车队</span>
+              </button>
+
+              <button
+                id="map-evade-war-toggle"
+                type="button"
+                className={`octo-zoom-pill stealth ${evadeWar ? 'amber' : ''}`}
+                aria-pressed={evadeWar}
+                onClick={onToggleEvadeWar}
+                title="开启后采用熄灯绕行策略：速度降低但避开交火盘查、节省灯油"
+              >
+                <ShieldAlert size={12} /><span>{evadeWar ? '熄灯潜行：开' : '常规行军'}</span>
+              </button>
             </div>
 
-            <div className="hud-bottom">
-              <div className="hud-legend" aria-label="舆图图例">
-                <span><LegendCaravanSvg />残响大篷车</span>
-                <span><LegendCitySvg />城郭</span>
-                <span><LegendVillageSvg />村寨</span>
-                <span><i className="legend-swatch" style={{ background: '#b8915e' }} />干道(1.4×)</span>
-                <span><i className="legend-swatch" style={{ background: '#5c825a' }} />密林</span>
-                <span><i className="legend-swatch" style={{ background: '#748062' }} />沼泽</span>
-                <span><i className="legend-swatch" style={{ background: '#447c9c' }} />河湖</span>
-                <span><i className="legend-swatch" style={{ background: '#d4bd94' }} />迷雾</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <aside className="atlas-sidebar" aria-label="区域手账与侦查控制">
-        <div className="paper-note tone-kraft pinned">
-          <div className="card-head">
-            <h3><Trees size={14} />{region.name}</h3>
-            <span className={`wax-pill ${region.dangerTier >= 4 ? 'crimson' : 'amber'}`}>危级 {region.dangerTier}/5</span>
-          </div>
-          <p style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginBottom: 6 }}>{region.theme}</p>
-          {map && (
-            <div className="stat-grid-2">
-              <div className="metric-box">
-                <small>10× 区域尺度</small>
-                <b>{map.width} × {map.height}</b>
-              </div>
-              <div className="metric-box">
-                <small>城郭 / 村寨</small>
-                <b>{Object.values(map.pois).filter(p => p.kind === 'city').length} 城 · {Object.values(map.pois).filter(p => p.kind === 'village').length} 村</b>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {currentPoi && (
-          <div className="paper-note tone-ivory pinned" style={{ borderColor: 'var(--crimson)' }}>
-            <div className="card-head">
-              <h3><Building2 size={14} />当前驻扎地</h3>
-              <span className="wax-pill crimson">{currentPoi.kind === 'city' ? `城郭 (${currentPoi.footprint.length}格)` : '村寨'}</span>
-            </div>
-            {currentPoi.scouted && currentPoi.details ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <strong style={{ fontFamily: 'var(--font-display)', fontSize: 13.5 }}>{currentPoi.details.name}</strong>
-                  <span className="wax-pill forest">希望 {currentPoi.details.hope}</span>
-                </div>
-                <p style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{currentPoi.details.summary}</p>
-                <button id="open-scouted-poi-btn" type="button" className="btn sm" onClick={() => onOpenScout(currentPoi)}>
-                  <Eye size={12} />查看聚落卷宗与 NPC
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <strong>{currentPoi.placeholderName}</strong>
-                <button id="scout-current-poi-btn" type="button" className="btn sm primary full" onClick={() => onOpenScout(currentPoi)}>
-                  <Sparkles size={13} />侦查此地（LLM 生成详情）
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="paper-note tone-ivory atlas-sidebar-flex-note">
-          <div className="card-head">
-            <h3><Footprints size={14} />已探明据点</h3>
-            <small>{visiblePois.length} 处</small>
-          </div>
-          <div className="poi-list">
-            {visiblePois.length ? visiblePois.map(poi => (
-              <div key={poi.id} className="poi-row">
-                <div className="poi-row-info">
-                  <b>{poi.scouted && poi.details ? poi.details.name : poi.placeholderName}</b>
-                  <small>{poi.kind === 'city' ? `多格城市 (${poi.footprint.length}格)` : '荒野村寨'} · ({poi.x}, {poi.y})</small>
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
+            {/* 点选地图菱形地标时弹出的精致羊皮斥候便签（.paper-note） */}
+            {focusedPoi && (
+              <div id="map-poi-quick-note" className="paper-note tone-ivory pinned octo-poi-popover">
+                <div className="card-head" style={{ marginBottom: 4 }}>
+                  <h3>
+                    {focusedPoi.scouted && focusedPoi.details ? focusedPoi.details.name : focusedPoi.placeholderName}
+                  </h3>
                   <button
-                    id={`assist-route-${poi.id}`}
+                    id="close-poi-popover"
                     type="button"
-                    className="btn sm ghost"
-                    title="绘制参考墨线前往此处"
-                    onClick={() => onAssistSketchTo(poi.x, poi.y)}
+                    aria-label="关闭据点便签"
+                    onClick={() => setFocusedPoiId(null)}
                   >
-                    <Route size={11} />引线
-                  </button>
-                  <button
-                    id={`scout-list-${poi.id}`}
-                    type="button"
-                    className={`btn sm ${poi.scouted ? '' : 'primary'}`}
-                    onClick={() => onOpenScout(poi)}
-                  >
-                    {poi.scouted ? '详览' : '侦查'}
+                    <X size={13} />
                   </button>
                 </div>
-              </div>
-            )) : (
-              <p style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>当前视野内尚无已知聚落，在羊皮纸上向远方划线探索吧。</p>
-            )}
-          </div>
-        </div>
-
-        <div className="paper-note tone-sage" style={{ maxHeight: 148, display: 'flex', flexDirection: 'column' }}>
-          <div className="card-head">
-            <h3><Compass size={14} />相邻省界关口</h3>
-            <small>4 格内出境</small>
-          </div>
-          <div className="poi-list">
-            {reachableGates.map(gate => (
-              <div key={gate.targetRegionId} className="poi-row">
-                <div className="poi-row-info">
-                  <b>通往 {state.world.regions[gate.targetRegionId].name}</b>
-                  <small>{gate.seen ? `(${gate.x}, ${gate.y}) · 距 ${Math.round(gate.dist)} 里` : '仍在迷雾深处'}</small>
-                </div>
-                {gate.dist <= 4 ? (
+                <p style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginBottom: 7 }}>
+                  {focusedPoi.scouted && focusedPoi.details
+                    ? focusedPoi.details.summary
+                    : `${focusedPoi.kind === 'city' ? '多格城郭遗址' : '荒原风灯村寨'} · 坐标 (${focusedPoi.x}, ${focusedPoi.y})，尚未派遣斥候生成详情。`}
+                </p>
+                <div style={{ display: 'flex', gap: 6 }}>
                   <button
-                    id={`cross-border-${gate.targetRegionId}`}
-                    type="button"
-                    className="btn sm primary"
-                    onClick={() => onCrossBorder(gate.targetRegionId)}
-                  >
-                    出境展开
-                  </button>
-                ) : gate.seen ? (
-                  <button
-                    id={`assist-gate-${gate.targetRegionId}`}
+                    id="popover-sketch-btn"
                     type="button"
                     className="btn sm"
-                    onClick={() => onAssistSketchTo(gate.x, gate.y)}
+                    onClick={() => onAssistSketchTo(focusedPoi.x, focusedPoi.y)}
                   >
-                    引线
+                    <Route size={11} />引线前往
                   </button>
-                ) : (
-                  <span className="wax-pill">未探明</span>
-                )}
+                  <button
+                    id="popover-scout-btn"
+                    type="button"
+                    className="btn sm primary"
+                    onClick={() => onOpenScout(focusedPoi)}
+                  >
+                    {focusedPoi.scouted ? <><Eye size={11} />查阅卷宗</> : <><Sparkles size={11} />侦查生成</>}
+                  </button>
+                </div>
               </div>
-            ))}
+            )}
+
+            {/* 左下悬浮坐标读数与微缩铜版图例 */}
+            <div className="octo-bottom-hud">
+              <div className="octo-coord-strip">
+                <MapPin size={12} />
+                <span>
+                  {region.name} ({Math.round(state.world.pos.x)},{Math.round(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
+                  {cursorLabel ? ` ｜ 光标 ${cursorLabel}` : ''}
+                </span>
+              </div>
+              <div className="octo-legend-strip" aria-label="铜版舆图图例">
+                <span><LegendCaravanSvg />大篷车</span>
+                <span><LegendCitySvg />城郭</span>
+                <span><LegendVillageSvg />村寨</span>
+                <span><i className="legend-swatch" style={{ background: '#b89868' }} />古道(1.4×)</span>
+                <span><i className="legend-swatch" style={{ background: '#989068' }} />林地</span>
+                <span><i className="legend-swatch" style={{ background: '#88928b' }} />河海</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </aside>
+        )}
+      </div>
     </div>
   );
 }
