@@ -475,6 +475,9 @@ export interface Beast {
   hunger: number;
   appeal: number;
   combatPower: number;
+  natureId?: string;
+  abilityId?: string;
+  caughtRegionId?: RegionId;
   talents: BeastTalent[];
   pairedTamerId?: string;
 }
@@ -629,4 +632,5 @@ export type GameAction =
   | { type: 'tavernRest'; poiId: string }
   | { type: 'stagePerform'; poiId: string }
   | { type: 'settlementBuySupply'; poiId: string; supplyKey: keyof Supplies; amount: number; cost: number }
-  | { type: 'settlementAidOrPass'; poiId: string; mode: 'ration_aid' | 'buy_pass' };
+  | { type: 'settlementAidOrPass'; poiId: string; mode: 'ration_aid' | 'buy_pass' }
+  | { type: 'attemptWildCapture'; speciesId: string; useBait?: boolean; rollSeed?: number };

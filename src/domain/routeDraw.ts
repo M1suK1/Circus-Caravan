@@ -285,3 +285,36 @@ export function slicePolylineFromDistance(
   const last = points[points.length - 1]!;
   return [{ ...last }];
 }
+
+/**
+ * 不可变拼接前后两段路线评估结果：前段已验有效点列与里程永不回炉重算，彻底避免多次续画浮点漂移重置。
+ */
+export function mergeRouteEvaluations(base: RouteEvaluation, ext: RouteEvaluation): RouteEvaluation {
+  if (ext.points.length < 2) return base;
+  const mergedValid = [...base.validPoints, ...ext.validPoints.slice(1)];
+  const totalDist = Number((base.distanceTiles + ext.distanceTiles).toFixed(1));
+  const totalDays = Number((base.travelDays + ext.travelDays).toFixed(2));
+  const avgSpd = totalDist > 0.05
+    ? Number(
+        (
+          (base.avgSpeedMultiplier * base.distanceTiles + ext.avgSpeedMultiplier * ext.distanceTiles) /
+          totalDist
+        ).toFixed(2),
+      )
+    : base.avgSpeedMultiplier;
+
+  return {
+    points: [...base.validPoints, ...ext.points.slice(1)],
+    validPoints: mergedValid,
+    distanceTiles: totalDist,
+    travelDays: totalDays,
+    rationsCost: base.rationsCost + ext.rationsCost,
+    fuelCost: base.fuelCost + ext.fuelCost,
+    durabilityCost: base.durabilityCost + ext.durabilityCost,
+    blocked: ext.blocked,
+    blockReason: ext.blockReason,
+    reachedGate: ext.reachedGate ?? base.reachedGate,
+    reachedPoiId: ext.reachedPoiId ?? base.reachedPoiId,
+    avgSpeedMultiplier: avgSpd,
+  };
+}

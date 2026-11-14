@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { CaravanView } from './components/CaravanView.tsx';
 import { CartographyView } from './components/Cartography/CartographyView.tsx';
 import { BeastDialog } from './components/Modals/BeastDialog.tsx';
+import { BestiaryDialog } from './components/Modals/BestiaryDialog.tsx';
 import { EngineConfigDialog } from './components/Modals/EngineConfigDialog.tsx';
 import { GuideDialog, NotificationsDrawer } from './components/Modals/GuideAndNotifs.tsx';
 import { PerformerDialog } from './components/Modals/PerformerDialog.tsx';
@@ -40,6 +41,7 @@ type ModalState =
   | { type: 'scout'; poi: SettlementPoi }
   | { type: 'performer'; id: string }
   | { type: 'beast'; beast: Beast }
+  | { type: 'bestiary' }
   | { type: 'engine' }
   | { type: 'guide' }
   | { type: 'notifications' }
@@ -229,6 +231,9 @@ export function App() {
         onToggleEvadeWar={() => setEvadeWar(v => !v)}
         onOpenScout={poi => setModal({ type: 'scout', poi })}
         onAssistSketchTo={handleAssistSketchTo}
+        onAttemptCapture={(speciesId, useBait) => {
+          dispatch({ type: 'attemptWildCapture', speciesId, useBait });
+        }}
       />
 
       {page !== 'map' && (
@@ -257,6 +262,7 @@ export function App() {
               <SuppliesView
                 state={state}
                 onSelectBeast={beast => setModal({ type: 'beast', beast })}
+                onOpenBestiary={() => setModal({ type: 'bestiary' })}
                 onBuySupply={handleBuySupply}
                 onNotify={notify}
               />
@@ -284,6 +290,7 @@ export function App() {
         }}
         onOpenEngine={() => setModal({ type: 'engine' })}
         onOpenCardbox={() => { setPage('caravan'); notify('可在右侧「角色卡双栖指派台」导入并试配角色卡。'); }}
+        onOpenBestiary={() => setModal({ type: 'bestiary' })}
         onOpenGuide={() => setModal({ type: 'guide' })}
         unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
       />
@@ -359,6 +366,16 @@ export function App() {
           beast={modal.beast}
           onClose={() => setModal(null)}
           onNotify={msg => notify(msg)}
+        />
+      )}
+
+      {modal?.type === 'bestiary' && (
+        <BestiaryDialog
+          state={state}
+          onClose={() => setModal(null)}
+          onAttemptCapture={(speciesId, useBait) => {
+            dispatch({ type: 'attemptWildCapture', speciesId, useBait });
+          }}
         />
       )}
 

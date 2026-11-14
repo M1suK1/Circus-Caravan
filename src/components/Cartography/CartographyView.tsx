@@ -14,6 +14,8 @@ import {
   X,
 } from 'lucide-react';
 import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
+import { findBeastSpecies } from '../../content/species.ts';
+import { getElementProfile } from '../../domain/creatureTaxonomy.ts';
 import { computeTerrainEncounterTable, getTerrainBaseEncounterChance } from '../../domain/encounters.ts';
 import { regionTerrainAt } from '../../domain/regionGen.ts';
 import { isTileExplored, TERRAIN_COST, TERRAIN_SPEED } from '../../domain/routeDraw.ts';
@@ -27,6 +29,7 @@ import type {
   TerrainType,
 } from '../../types.ts';
 import { LegendCaravanSvg, LegendCitySvg, LegendVillageSvg } from '../CaravanCrestIcon.tsx';
+import { CreaturePortrait } from '../CreaturePortrait.tsx';
 import { isSettlementRevealed } from './mapIcons.ts';
 import {
   FOLLOW_DEFAULT_ZOOM,
@@ -78,6 +81,7 @@ export function CartographyView({
   onToggleEvadeWar,
   onOpenScout,
   onAssistSketchTo,
+  onAttemptCapture,
 }: {
   state: CircusState;
   zoom: MapZoomMode;
@@ -90,6 +94,7 @@ export function CartographyView({
   onToggleEvadeWar: () => void;
   onOpenScout: (poi: SettlementPoi) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
+  onAttemptCapture: (speciesId: string, useBait: boolean) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -445,7 +450,7 @@ export function CartographyView({
             </div>
 
             {focusedPoi && (
-              <div id="map-poi-quick-note" className="paper-note tone-ivory pinned octo-poi-popover">
+              <div id="map-poi-quick-note" className="paper-note tone-ivory pinned octo-bottom-left-card">
                 <div className="card-head" style={{ marginBottom: 4 }}>
                   <h3>
                     {focusedPoi.scouted && focusedPoi.details ? focusedPoi.details.name : focusedPoi.placeholderName}
@@ -485,9 +490,9 @@ export function CartographyView({
               </div>
             )}
 
-            {/* 右键地图格点弹出的地形信息与曾经遇到的奇幻生物卡片 */}
+            {/* 右键地图格点弹出的地形信息与曾经遇到的奇幻生物卡片（固定左下角防溢出） */}
             {inspectedTile && inspectSummary && (
-              <div id="map-terrain-inspect-note" className="paper-note tone-kraft pinned octo-poi-popover" style={{ width: 326 }}>
+              <div id="map-terrain-inspect-note" className="paper-note tone-kraft pinned octo-bottom-left-card">
                 <div className="card-head" style={{ marginBottom: 5 }}>
                   <h3>
                     <MapPin size={14} />
@@ -510,7 +515,7 @@ export function CartographyView({
                     该地块尚被未知流云迷雾遮蔽（所属：{REGION_CATALOG[inspectedTile.regionId].name}）。请指挥大篷车靠近点亮风灯后再右键勘测详细生态。
                   </p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div className="stat-grid-2">
                       <div className="metric-box">
                         <small>行军速度 / 通行</small>
@@ -522,7 +527,7 @@ export function CartographyView({
                       </div>
                     </div>
                     <small style={{ color: 'var(--ink-muted)' }}>
-                      所属：{REGION_CATALOG[inspectedTile.regionId].name} · 灯油消耗 ×{inspectSummary.cost.fuel} · 车损 ×{inspectSummary.cost.wear}
+                      所属：{REGION_CATALOG[inspectedTile.regionId].name} · 灯油 ×{inspectSummary.cost.fuel} · 车损 ×{inspectSummary.cost.wear}
                     </small>
 
                     <div style={{ borderTop: '1px dashed var(--umber-line)', paddingTop: 6 }}>
@@ -530,19 +535,38 @@ export function CartographyView({
                         <b style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
                           <PawPrint size={12} style={{ color: 'var(--crimson)' }} />曾经遇到的奇幻生物
                         </b>
-                        <small style={{ color: 'var(--ink-muted)' }}>未知潜在物种 {inspectSummary.unseenCount} 种</small>
+                        <small style={{ color: 'var(--ink-muted)' }}>未知物种 {inspectSummary.unseenCount} 种</small>
                       </div>
                       {inspectSummary.seenCreatures.length ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
-                          {inspectSummary.seenCreatures.map(sp => (
-                            <div key={sp.speciesId} className="poi-row" style={{ padding: '4px 7px' }}>
-                              <div className="poi-row-info">
-                                <b>{sp.name}</b>
-                                <small>{sp.passiveEffect ?? sp.description}</small>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 132, overflowY: 'auto' }}>
+                          {inspectSummary.seenCreatures.map(sp => {
+                            const fullSp = findBeastSpecies(sp.speciesId);
+                            const el = getElementProfile(sp.element);
+                            return (
+                              <div key={sp.speciesId} className="poi-row" style={{ padding: '4px 6px', gap: 7 }}>
+                                {fullSp && <CreaturePortrait species={fullSp} size={32} />}
+                                <div className="poi-row-info" style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <b>{sp.name}</b>
+                                    <span className="wax-pill" style={{ background: el.bg, color: el.color, borderColor: el.color, fontSize: 9.5 }}>
+                                      {el.shortName} · {sp.probabilityPct}%
+                                    </span>
+                                  </div>
+                                  <small>{sp.passiveEffect ?? sp.description}</small>
+                                </div>
+                                <button
+                                  id={`terrain-capture-${sp.speciesId}`}
+                                  type="button"
+                                  className="btn sm primary"
+                                  disabled={state.supplies.tamingNets < 1}
+                                  title="消耗 1 张麻醉捕捉网发起随机性格/特性捕捉"
+                                  onClick={() => onAttemptCapture(sp.speciesId, state.supplies.props > 0)}
+                                >
+                                  捕捉
+                                </button>
                               </div>
-                              <span className="wax-pill amber">{sp.probabilityPct}%</span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <p style={{ fontSize: 11, color: 'var(--ink-muted)' }}>

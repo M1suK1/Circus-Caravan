@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Map as MapIcon,
   Package,
+  PawPrint,
   RefreshCw,
   Route,
   Save,
@@ -72,6 +73,7 @@ export function SideRail({
   onNewRandom,
   onOpenEngine,
   onOpenCardbox,
+  onOpenBestiary,
   onOpenGuide,
   unreadCount,
 }: {
@@ -82,6 +84,7 @@ export function SideRail({
   onNewRandom: () => void;
   onOpenEngine: () => void;
   onOpenCardbox: () => void;
+  onOpenBestiary: () => void;
   onOpenGuide: () => void;
   unreadCount: number;
 }) {
@@ -146,6 +149,13 @@ export function SideRail({
           <span className="silk-bookmark-content">
             <FolderKanban size={13} />
             <span>角色卡库</span>
+          </span>
+        </button>
+        <button id="open-bestiary" type="button" className="silk-bookmark sub" onClick={onOpenBestiary}>
+          <span className="silk-bookmark-ribbon" aria-hidden="true" />
+          <span className="silk-bookmark-content">
+            <PawPrint size={13} />
+            <span>奇兽图鉴</span>
           </span>
         </button>
         <button id="open-guide" type="button" className="silk-bookmark sub" onClick={onOpenGuide}>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  BookOpen,
   Coins,
   Compass,
   Flame,
@@ -11,18 +12,23 @@ import {
   Truck,
   Users,
 } from 'lucide-react';
-import { findBeastSpecies } from '../content/species.ts';
+import { BEAST_SPECIES, findBeastSpecies } from '../content/species.ts';
 import { dailyUpkeep, usedCageSlots, usedSeats, usedWeight } from '../domain/caravanMath.ts';
+import { getElementProfile } from '../domain/creatureTaxonomy.ts';
+import { findCreatureAbility, findCreatureNature } from '../domain/naturesAndCapture.ts';
 import type { Beast, CircusState } from '../types.ts';
+import { CreaturePortrait } from './CreaturePortrait.tsx';
 
 export function SuppliesView({
   state,
   onSelectBeast,
+  onOpenBestiary,
   onBuySupply,
   onNotify,
 }: {
   state: CircusState;
   onSelectBeast: (beast: Beast) => void;
+  onOpenBestiary: () => void;
   onBuySupply: (key: keyof CircusState['supplies'], amount: number, cost: number) => void;
   onNotify: (msg: string, warn?: boolean) => void;
 }) {
@@ -47,15 +53,21 @@ export function SuppliesView({
 
   return (
     <div className="view-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="silk-tab-row" role="tablist" aria-label="物资模块切换">
-        <button id="supplies-tab-stock" type="button" role="tab" aria-selected={tab === 'supplies'} className={`silk-tab tone-amber ${tab === 'supplies' ? 'active' : ''}`} onClick={() => setTab('supplies')}>
-          <ShoppingBag size={12} /><span>行军辎重与补给市集</span>
-        </button>
-        <button id="supplies-tab-beasts" type="button" role="tab" aria-selected={tab === 'menagerie'} className={`silk-tab ${tab === 'menagerie' ? 'active' : ''}`} onClick={() => setTab('menagerie')}>
-          <PawPrint size={12} /><span>奇幻兽笼 ({usedCageSlots(state)}/{state.caravan.maxCageSlots} 格)</span>
-        </button>
-        <button id="supplies-tab-contracts" type="button" role="tab" aria-selected={tab === 'contracts'} className={`silk-tab tone-indigo ${tab === 'contracts' ? 'active' : ''}`} onClick={() => setTab('contracts')}>
-          <Truck size={12} /><span>货运载重与乘客席位</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div className="silk-tab-row" role="tablist" aria-label="物资模块切换">
+          <button id="supplies-tab-stock" type="button" role="tab" aria-selected={tab === 'supplies'} className={`silk-tab tone-amber ${tab === 'supplies' ? 'active' : ''}`} onClick={() => setTab('supplies')}>
+            <ShoppingBag size={12} /><span>行军辎重与补给市集</span>
+          </button>
+          <button id="supplies-tab-beasts" type="button" role="tab" aria-selected={tab === 'menagerie'} className={`silk-tab ${tab === 'menagerie' ? 'active' : ''}`} onClick={() => setTab('menagerie')}>
+            <PawPrint size={12} /><span>奇幻兽笼 ({usedCageSlots(state)}/{state.caravan.maxCageSlots} 格)</span>
+          </button>
+          <button id="supplies-tab-contracts" type="button" role="tab" aria-selected={tab === 'contracts'} className={`silk-tab tone-indigo ${tab === 'contracts' ? 'active' : ''}`} onClick={() => setTab('contracts')}>
+            <Truck size={12} /><span>货运载重与乘客席位</span>
+          </button>
+        </div>
+
+        <button id="supplies-open-bestiary-btn" type="button" className="btn sm primary" onClick={onOpenBestiary}>
+          <BookOpen size={12} />奇兽魔物娘图鉴 ({state.encounteredSpeciesIds.length}/{BEAST_SPECIES.length})
         </button>
       </div>
 
@@ -89,14 +101,17 @@ export function SuppliesView({
       )}
 
       {tab === 'menagerie' && (
-        <section className="paper-note tone-kraft pinned" aria-label="奇幻生物兽笼培养名录">
+        <section className="paper-note tone-kraft pinned" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} aria-label="奇幻生物兽笼培养名录">
           <div className="card-head">
-            <h2><PawPrint size={15} />奇幻兽笼与进阶培养名录</h2>
-            <small>占用 {usedCageSlots(state)} / {state.caravan.maxCageSlots} 格兽笼 · 点击生物查看多分支进阶与拍卖估值</small>
+            <h2><PawPrint size={15} />奇幻兽笼与性格特性培养名录</h2>
+            <small>占用 {usedCageSlots(state)} / {state.caravan.maxCageSlots} 格兽笼 · 点击查看立绘、属性克制与进阶分支</small>
           </div>
           <div className="cards-grid">
             {state.beasts.map(beast => {
               const species = findBeastSpecies(beast.speciesId);
+              const el = species ? getElementProfile(species.element) : undefined;
+              const nature = findCreatureNature(beast.natureId);
+              const ability = findCreatureAbility(beast.abilityId);
               return (
                 <button
                   key={beast.id}
@@ -106,15 +121,26 @@ export function SuppliesView({
                   style={{ flexDirection: 'column', gap: 7 }}
                   onClick={() => onSelectBeast(beast)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                    <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>{beast.nickname}</strong>
-                    <span className="wax-pill crimson">{species?.name ?? beast.speciesId} · {beast.stage} 阶</span>
+                  <div style={{ display: 'flex', gap: 10, width: '100%', alignItems: 'center' }}>
+                    {species && <CreaturePortrait species={species} size={48} />}
+                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                        <strong style={{ fontFamily: 'var(--font-display)', fontSize: 13.5 }}>{beast.nickname}</strong>
+                        {el && (
+                          <span className="wax-pill" style={{ background: el.bg, color: el.color, borderColor: el.color }}>
+                            {el.label}
+                          </span>
+                        )}
+                      </div>
+                      <small style={{ color: 'var(--ink-muted)', display: 'block' }}>
+                        {species?.name ?? beast.speciesId} · 性格:{nature.name} · 特性:{ability.name}
+                      </small>
+                    </div>
                   </div>
                   <div className="stat-grid-2" style={{ width: '100%' }}>
                     <div className="metric-box"><small>观赏度 / 战力</small><b>{beast.appeal} / {beast.combatPower}</b></div>
                     <div className="metric-box"><small>驯服 / 饱食</small><b>{beast.tameness}% / {beast.hunger}%</b></div>
                   </div>
-                  <small style={{ color: 'var(--amber)' }}>点击进入喂养训练、二阶分支预览与黑市估值</small>
                 </button>
               );
             })}

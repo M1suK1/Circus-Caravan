@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { evaluateRouteStroke } from '../../domain/routeDraw.ts';
+import { evaluateRouteStroke, mergeRouteEvaluations } from '../../domain/routeDraw.ts';
 import type { CircusState, MapZoomMode, RouteEvaluation } from '../../types.ts';
 import { canvasPxToMap, type RegionCamera, type ViewportTransform } from './mapRenderer.ts';
 
@@ -14,14 +14,16 @@ export function useRouteSketch(
   const [drawing, setDrawing] = useState(false);
   const [panning, setPanning] = useState(false);
   const strokeRef = useRef<{ x: number; y: number }[]>([]);
+  const baseDraftRef = useRef<RouteEvaluation | null>(null);
   const preStrokeDraftRef = useRef<RouteEvaluation | null>(null);
   const vpRef = useRef<ViewportTransform | null>(null);
   const panAnchorRef = useRef<{ clientX: number; clientY: number; vp: ViewportTransform } | null>(null);
 
-  // 仅当外部明确将 routeDraft 置空（如点击「擦除墨线」、启程或跨区）时才清空笔迹缓存
+  // 仅当外部明确将 routeDraft 置空（点击「擦除墨线」、启程或跨区）时才清空笔迹缓存
   useEffect(() => {
     if (!routeDraft) {
       strokeRef.current = [];
+      baseDraftRef.current = null;
     }
   }, [routeDraft]);
 
@@ -45,18 +47,24 @@ export function useRouteSketch(
     return canvasPxToMap(px, py, vpRef.current);
   };
 
-  const evaluate = useCallback(
-    (points: { x: number; y: number }[]) => {
+  const emitMerged = useCallback(
+    (newStroke: { x: number; y: number }[]) => {
       const map = state.world.regions[state.world.currentRegionId].map;
-      if (!map || points.length < 2) return null;
-      return evaluateRouteStroke(map, points, state, evadeWar);
+      if (!map) return;
+      if (newStroke.length < 2) {
+        if (baseDraftRef.current) onDraftChange(baseDraftRef.current);
+        return;
+      }
+      const ext = evaluateRouteStroke(map, newStroke, state, evadeWar);
+      onDraftChange(baseDraftRef.current ? mergeRouteEvaluations(baseDraftRef.current, ext) : ext);
     },
-    [state, evadeWar],
+    [state, evadeWar, onDraftChange],
   );
 
   const restorePreStrokeDraft = useCallback(() => {
     const prev = preStrokeDraftRef.current;
-    strokeRef.current = prev ? [...prev.validPoints] : [];
+    baseDraftRef.current = null;
+    strokeRef.current = [];
     onDraftChange(prev);
   }, [onDraftChange]);
 
@@ -79,17 +87,24 @@ export function useRouteSketch(
     setDrawing(true);
 
     preStrokeDraftRef.current = routeDraft;
-    // 支持分多次续画：已有有效路线时从 validPoints 末端继续延伸（自动剔除上次失效红尾）
-    const basePoints = routeDraft && routeDraft.validPoints.length >= 2
-      ? routeDraft.validPoints.map(p => ({ ...p }))
-      : [{ x: state.world.pos.x, y: state.world.pos.y }];
-    const tail = basePoints[basePoints.length - 1]!;
-    strokeRef.current = Math.hypot(pt.x - tail.x, pt.y - tail.y) < 0.45
-      ? basePoints
-      : [...basePoints, pt];
-    if (strokeRef.current.length >= 2) {
-      onDraftChange(evaluate(strokeRef.current));
+    if (routeDraft && routeDraft.validPoints.length >= 2) {
+      // 冻结已有有效路线作为不可变前段，仅对本笔新轨迹增量拼接，杜绝第 3 笔及以上浮点漂移重置
+      baseDraftRef.current = {
+        ...routeDraft,
+        blocked: false,
+        blockReason: undefined,
+        points: routeDraft.validPoints.map(p => ({ ...p })),
+        validPoints: routeDraft.validPoints.map(p => ({ ...p })),
+      };
+      const tail = baseDraftRef.current.validPoints[baseDraftRef.current.validPoints.length - 1]!;
+      strokeRef.current = Math.hypot(pt.x - tail.x, pt.y - tail.y) < 0.25 ? [tail] : [tail, pt];
+    } else {
+      baseDraftRef.current = null;
+      const start = { x: state.world.pos.x, y: state.world.pos.y };
+      strokeRef.current = Math.hypot(pt.x - start.x, pt.y - start.y) < 0.25 ? [start] : [start, pt];
     }
+
+    emitMerged(strokeRef.current);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -123,7 +138,7 @@ export function useRouteSketch(
     const prev = strokeRef.current[strokeRef.current.length - 1];
     if (prev && Math.hypot(pt.x - prev.x, pt.y - prev.y) < 0.45) return;
     strokeRef.current = [...strokeRef.current, pt];
-    onDraftChange(evaluate(strokeRef.current));
+    emitMerged(strokeRef.current);
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -140,9 +155,8 @@ export function useRouteSketch(
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    if (strokeRef.current.length >= 2) {
-      onDraftChange(evaluate(strokeRef.current));
-    }
+    emitMerged(strokeRef.current);
+    baseDraftRef.current = null;
   };
 
   return {

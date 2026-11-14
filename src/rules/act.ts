@@ -1,5 +1,6 @@
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import {
+  applyAttemptWildCapture,
   applyHireCandidate,
   applyImportCardAsPerformer,
   applyPlaceCardAsNpc,
@@ -49,6 +50,8 @@ export function act(state: CircusState, action: GameAction): ActionResult {
       return applySettlementBuySupply(state, action);
     case 'settlementAidOrPass':
       return applySettlementAidOrPass(state, action);
+    case 'attemptWildCapture':
+      return applyAttemptWildCapture(state, action);
     default:
       return { state, ok: false, message: '未知操作。' };
   }

@@ -1,5 +1,7 @@
-import { computeCaravanCapacity, usedSeats, wagonRepairCost, wagonUpgradeCost } from '../domain/caravanMath.ts';
+import { findBeastSpecies } from '../content/species.ts';
+import { beastCageCost, computeCaravanCapacity, usedCageSlots, usedSeats, wagonRepairCost, wagonUpgradeCost } from '../domain/caravanMath.ts';
 import { cardToPerformer, cardToWorldNpc } from '../domain/cardAdapter.ts';
+import { attemptCaptureRoll } from '../domain/naturesAndCapture.ts';
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
 
@@ -153,4 +155,64 @@ export function applySetPerformerPortrait(
   performer.portrait = action.portrait;
   performer.portraitAsset = undefined;
   return { state: next, ok: true, message: `已更新「${performer.name}」的全身立绘。` };
+}
+
+export function applyAttemptWildCapture(
+  state: CircusState,
+  action: Extract<GameAction, { type: 'attemptWildCapture' }>,
+): ActionResult {
+  const species = findBeastSpecies(action.speciesId);
+  if (!species) return { state, ok: false, message: '图鉴中找不到该奇幻生物物种。' };
+  if (state.supplies.tamingNets < 1) {
+    return { state, ok: false, message: '麻醉捕捉网已耗尽，请先在补给市集或城镇商铺购买。' };
+  }
+  if (usedCageSlots(state) + species.cageCost > state.caravan.maxCageSlots) {
+    return {
+      state,
+      ok: false,
+      message: `奇幻兽笼空间不足（需 ${species.cageCost} 格），请先扩建兽笼车厢。`,
+    };
+  }
+  const useBait = Boolean(action.useBait && state.supplies.props > 0);
+  const next = clone(state);
+  next.supplies.tamingNets -= 1;
+  if (useBait) next.supplies.props -= 1;
+  if (!next.encounteredSpeciesIds.includes(species.id)) {
+    next.encounteredSpeciesIds.push(species.id);
+  }
+
+  const hasTamer = next.performers.some(p => p.role === 'tamer');
+  const rollSeed = action.rollSeed ?? (next.world.seed + next.day * 37 + next.beasts.length * 13 + next.supplies.tamingNets * 7);
+  const outcome = attemptCaptureRoll(species, { hasTamer, useBait, rollSeed });
+  const pct = Math.round(outcome.probability * 100);
+
+  if (!outcome.captured) {
+    const msg = `投出捕获网晃动 ${outcome.shakes} 下后，${outcome.nature.name}性格的「${species.name}」（${outcome.ability.name}）挣脱逃进了荒野（本次捕获率 ${pct}%）。`;
+    pushLog(next, 'beast', msg);
+    return { state: next, ok: true, message: msg };
+  }
+
+  next.beasts.push({
+    id: `beast-${species.id}-${next.day}-${rollSeed}`,
+    speciesId: species.id,
+    nickname: species.name,
+    stage: species.stage,
+    level: 1,
+    exp: 0,
+    tameness: outcome.nature.id === 'gentle' || outcome.nature.id === 'calm' ? 68 : 52,
+    hunger: 80,
+    appeal: outcome.appeal,
+    combatPower: outcome.combatPower,
+    natureId: outcome.nature.id,
+    abilityId: outcome.ability.id,
+    caughtRegionId: next.world.currentRegionId,
+    talents: species.passiveEffect
+      ? [{ id: `tal-${species.id}`, name: outcome.ability.name, effect: species.passiveEffect, value: 10 }]
+      : [],
+  });
+  // 保障调用 beastCageCost 保持一致性导入使用
+  void beastCageCost;
+  const msg = `捕获成功！「${species.name}」入笼（性格：${outcome.nature.name} · 特性：${outcome.ability.name} · 捕获率 ${pct}%）。`;
+  pushLog(next, 'beast', msg);
+  return { state: next, ok: true, message: msg };
 }
