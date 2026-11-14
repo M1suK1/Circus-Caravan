@@ -2,6 +2,7 @@
  * 10× 区域小地图程序化生成器（继承世界地图形状、河湖位置，生成 1–3 座多格城市与主要道路）。
  */
 import { REGION_CATALOG, REGION_IDS, type RegionProfile } from '../content/regions.ts';
+import { applyRegionHydrology } from './regionHydrology.ts';
 import {
   computeWorldNeighbors,
   createRng,
@@ -25,8 +26,16 @@ import type {
 
 const SCALE = 10;
 
-function sampleEcoTerrain(weights: Partial<Record<TerrainType, number>>, roll: number): TerrainType {
-  const entries = Object.entries(weights) as [TerrainType, number][];
+function sampleEcoTerrain(
+  weights: Partial<Record<TerrainType, number>>,
+  roll: number,
+  allowSwampWater: boolean,
+): TerrainType {
+  // 除沉没泽国外，禁止随机噪声散撒零碎水洼（水体必须集中成完整湖泊或连续河流）；同时禁止中部随机撒山堵路
+  const entries = (Object.entries(weights) as [TerrainType, number][]).filter(
+    ([terrain]) => terrain !== 'mountain' && (allowSwampWater || terrain !== 'lake'),
+  );
+  if (!entries.length) return 'wasteland';
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let acc = roll * total;
   for (const [terrain, w] of entries) {
@@ -55,7 +64,9 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
   const regionIndex = REGION_IDS.indexOf(regionId);
   const terrain = new Uint8Array(width * height);
 
-  // 1. 按 10× 等比映射世界地图不规则轮廓、海洋、湖泊与生态地形
+  // 1. 按 10× 等比映射世界地图不规则轮廓、海洋、大湖与生态地形（山脉严格继承世界疆域边界山）
+  let worldLakeTiles = 0;
+
   for (let ly = 0; ly < height; ly += 1) {
     const wy = bounds.minY + Math.floor(ly / SCALE);
     for (let lx = 0; lx < width; lx += 1) {
@@ -75,6 +86,7 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
       }
       if (wTer === 'lake') {
         terrain[lIdx] = TERRAIN_TO_CODE.lake;
+        worldLakeTiles += 1;
         continue;
       }
       if (wTer === 'river') {
@@ -87,44 +99,28 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
       }
 
       const n = valueNoise2d(lx, ly, 9, regionSeed + 41);
-      if (wTer === 'mountain' && n > 0.35) {
+      if (wTer === 'mountain' && n > 0.28) {
         terrain[lIdx] = TERRAIN_TO_CODE.mountain;
       } else {
-        const picked = sampleEcoTerrain(profile.terrainWeights, n);
-        terrain[lIdx] = TERRAIN_TO_CODE[picked === 'mountain' && n < 0.72 ? 'wasteland' : picked];
+        const picked = sampleEcoTerrain(profile.terrainWeights, n, false);
+        terrain[lIdx] = TERRAIN_TO_CODE[picked];
       }
     }
   }
 
-  // 2. 精确映射世界河流线段并在 10× 缩放廊道中平滑加宽（保证河道连贯且符合世界地图位置）
-  for (const river of world.rivers) {
-    for (let i = 1; i < river.points.length; i += 1) {
-      const p0 = river.points[i - 1]!;
-      const p1 = river.points[i]!;
-      const x0 = (p0.x + 0.5) * SCALE - worldOffsetX;
-      const y0 = (p0.y + 0.5) * SCALE - worldOffsetY;
-      const x1 = (p1.x + 0.5) * SCALE - worldOffsetX;
-      const y1 = (p1.y + 0.5) * SCALE - worldOffsetY;
-      const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
-      for (let s = 0; s <= steps; s += 1) {
-        const t = s / steps;
-        const cx = Math.round(x0 + (x1 - x0) * t);
-        const cy = Math.round(y0 + (y1 - y0) * t);
-        for (let dy = -1; dy <= 1; dy += 1) {
-          for (let dx = -1; dx <= 1; dx += 1) {
-            const nx = cx + dx;
-            const ny = cy + dy;
-            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-            const idx = ny * width + nx;
-            const cur = TERRAIN_ORDER[terrain[idx]!];
-            if (cur !== 'outside' && cur !== 'ocean' && cur !== 'lake') {
-              terrain[idx] = TERRAIN_TO_CODE.river;
-            }
-          }
-        }
-      }
-    }
-  }
+  // 2. 集中水体（河道映射、沉没泽国湿地水泊、常规集中大湖、焚沙裂谷低概率小绿洲并清理孤立水洼）
+  applyRegionHydrology({
+    world,
+    regionId,
+    terrain,
+    width,
+    height,
+    worldOffsetX,
+    worldOffsetY,
+    worldLakeTiles,
+    regionSeed,
+    rng,
+  });
 
   // 3. 收集所有可用陆地格
   const landCells: { x: number; y: number }[] = [];

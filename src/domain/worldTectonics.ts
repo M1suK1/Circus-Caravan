@@ -126,9 +126,6 @@ export function buildTectonicContinent(seed: number): TectonicField {
     };
   });
 
-  const orogenyA = { a: pt(0.35, 36), b: pt(3.15, 34) };
-  const orogenyB = { a: pt(1.85, 38), b: pt(5.05, 28) };
-
   for (let y = 0; y < WORLD_HEIGHT; y += 1) {
     for (let x = 0; x < WORLD_WIDTH; x += 1) {
       const idx = y * WORLD_WIDTH + x;
@@ -164,26 +161,16 @@ export function buildTectonicContinent(seed: number): TectonicField {
         if (di < 1.25) base = Math.max(base, 0.56 - di * 0.26);
       }
 
-      const detail = (valueNoise2d(x, y, 7.5, seed + 113) - 0.5) * 0.24
-        + (valueNoise2d(x, y, 3.4, seed + 157) - 0.5) * 0.15;
+      const detail = (valueNoise2d(x, y, 7.5, seed + 113) - 0.5) * 0.20
+        + (valueNoise2d(x, y, 3.4, seed + 157) - 0.5) * 0.12;
       const edgeDist = Math.min(x, y, WORLD_WIDTH - 1 - x, WORLD_HEIGHT - 1 - y);
       const borderFade = edgeDist < 10 ? (edgeDist - 2.2) / 7.8 : 1;
 
-      let h = (base + detail) * Math.max(0, Math.min(1, borderFade));
-
-      if (h >= 0.34) {
-        const dMtn = Math.min(
-          distToSegment(wx, wy, orogenyA.a.x, orogenyA.a.y, orogenyA.b.x, orogenyA.b.y),
-          distToSegment(wx, wy, orogenyB.a.x, orogenyB.a.y, orogenyB.b.x, orogenyB.b.y),
-        );
-        const ridgeRaw = 1 - Math.abs(2 * valueNoise2d(wx, wy, 9.5, seed + 211) - 1);
-        const belt = Math.max(0, 1 - dMtn / 14) * ridgeRaw * ridgeRaw;
-        h += belt * 0.52;
-      }
+      // 保持大陆内陆平缓丘陵（0.34~0.83），山脉将在疆域分省后沿边界自然隆起
+      const h = Math.min(0.84, (base * 0.86 + detail) * Math.max(0, Math.min(1, borderFade)));
 
       elevation[idx] = h;
       if (h < 0.34) isOcean[idx] = 1;
-      else if (h >= 0.91) isMountain[idx] = 1;
     }
   }
 
@@ -211,9 +198,11 @@ export function carveHydrology(
   const isRiver = new Uint8Array(total);
   const lakes: WorldLake[] = [];
 
-  for (let attempt = 0; attempt < 95 && lakes.length < 4; attempt += 1) {
-    const cx = Math.round(22 + rng() * 84);
-    const cy = Math.round(22 + rng() * 84);
+  for (let attempt = 0; attempt < 110 && lakes.length < 4; attempt += 1) {
+    const cx = Math.round(24 + rng() * 80);
+    const cy = Math.round(24 + rng() * 80);
+    // 避开西南干旱沙区（焚沙裂谷所在方位），使水体集中分布在湿润内陆成湖
+    if (cx < 54 && cy > 68) continue;
     const cIdx = cy * WORLD_WIDTH + cx;
     if (field.isOcean[cIdx] || field.isMountain[cIdx]) continue;
     if (lakes.some(l => Math.hypot(l.centerX - cx, l.centerY - cy) < 18)) continue;
@@ -302,7 +291,8 @@ export function carveHydrology(
         const nIdx = ny * WORLD_WIDTH + nx;
         if (visited[nIdx]) continue;
         const meander = (valueNoise2d(nx, ny, 4.2, seed + 509 + rivers.length * 37) - 0.5) * 0.13;
-        const score = seaDist[nIdx]! * 0.048 + field.elevation[nIdx]! * 0.52 + meander;
+        const aridBias = nx < 52 && ny > 70 ? 0.32 : 0;
+        const score = seaDist[nIdx]! * 0.048 + field.elevation[nIdx]! * 0.52 + meander + aridBias;
         if (score < bestScore) {
           bestScore = score;
           bestNx = nx;

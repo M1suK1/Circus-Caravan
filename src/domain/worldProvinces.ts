@@ -232,6 +232,68 @@ export function partitionRegionsGeodesic(
   return regionGrid;
 }
 
+/**
+ * 沿 9 大疆域交界线自然隆起分水岭山脉（同时保留约 30% 山口与河谷通道），
+ * 彻底消除大陆腹地连片高山堵路的问题。
+ */
+export function applyBorderMountains(
+  field: TectonicField,
+  regionGrid: Uint8Array,
+  isLake: Uint8Array,
+  isRiver: Uint8Array,
+  seed: number,
+): void {
+  const total = WORLD_WIDTH * WORLD_HEIGHT;
+  const borderDist = new Int16Array(total).fill(999);
+  const queue: number[] = [];
+
+  for (let y = 1; y < WORLD_HEIGHT - 1; y += 1) {
+    for (let x = 1; x < WORLD_WIDTH - 1; x += 1) {
+      const idx = y * WORLD_WIDTH + x;
+      const r = regionGrid[idx]!;
+      if (r >= 9) continue;
+      const touchesNeighbor =
+        (regionGrid[idx + 1]! < 9 && regionGrid[idx + 1] !== r) ||
+        (regionGrid[idx - 1]! < 9 && regionGrid[idx - 1] !== r) ||
+        (regionGrid[idx + WORLD_WIDTH]! < 9 && regionGrid[idx + WORLD_WIDTH] !== r) ||
+        (regionGrid[idx - WORLD_WIDTH]! < 9 && regionGrid[idx - WORLD_WIDTH] !== r);
+      if (touchesNeighbor) {
+        borderDist[idx] = 0;
+        queue.push(idx);
+      }
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const cur = queue[head++]!;
+    const nextD = borderDist[cur]! + 1;
+    if (nextD > 4) continue;
+    const cx = cur % WORLD_WIDTH;
+    const cy = (cur - cx) / WORLD_WIDTH;
+    if (cx > 0 && borderDist[cur - 1]! > nextD && regionGrid[cur - 1]! < 9) { borderDist[cur - 1] = nextD; queue.push(cur - 1); }
+    if (cx + 1 < WORLD_WIDTH && borderDist[cur + 1]! > nextD && regionGrid[cur + 1]! < 9) { borderDist[cur + 1] = nextD; queue.push(cur + 1); }
+    if (cy > 0 && borderDist[cur - WORLD_WIDTH]! > nextD && regionGrid[cur - WORLD_WIDTH]! < 9) { borderDist[cur - WORLD_WIDTH] = nextD; queue.push(cur - WORLD_WIDTH); }
+    if (cy + 1 < WORLD_HEIGHT && borderDist[cur + WORLD_WIDTH]! > nextD && regionGrid[cur + WORLD_WIDTH]! < 9) { borderDist[cur + WORLD_WIDTH] = nextD; queue.push(cur + WORLD_WIDTH); }
+  }
+
+  for (let y = 2; y < WORLD_HEIGHT - 2; y += 1) {
+    for (let x = 2; x < WORLD_WIDTH - 2; x += 1) {
+      const idx = y * WORLD_WIDTH + x;
+      if (field.isOcean[idx] || isLake[idx] || isRiver[idx] || field.isCoast[idx]) continue;
+      const bd = borderDist[idx]!;
+      if (bd > 2) continue;
+      const passMask = valueNoise2d(x, y, 11, seed + 991);
+      const ridge = valueNoise2d(x, y, 4.5, seed + 1049);
+      // 约 65% 省界线隆起为天然山脉，留出约 35% 低矮山口与河谷通道供干道通行
+      if ((bd <= 1 && passMask > 0.34 && ridge > 0.28) || (bd === 2 && passMask > 0.48 && ridge > 0.44)) {
+        field.isMountain[idx] = 1;
+        field.elevation[idx] = Math.max(field.elevation[idx]!, 0.94 + ridge * 0.16);
+      }
+    }
+  }
+}
+
 function cardinalDirection(from: RegionBounds, to: RegionBounds): Direction {
   const dx = to.centerX - from.centerX;
   const dy = to.centerY - from.centerY;

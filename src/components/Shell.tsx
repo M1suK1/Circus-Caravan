@@ -455,6 +455,7 @@ export function HelmBar({
   page,
   routeDraft,
   isTraveling,
+  onUndoRoute,
   onClearRoute,
   onLaunchRoute,
   onReturnMap,
@@ -464,6 +465,7 @@ export function HelmBar({
   page: AppPage;
   routeDraft: RouteEvaluation | null;
   isTraveling?: boolean;
+  onUndoRoute: () => void;
   onClearRoute: () => void;
   onLaunchRoute: () => void;
   onReturnMap: () => void;
@@ -497,6 +499,16 @@ export function HelmBar({
       <div className="helm-controls">
         {routeDraft && routeDraft.distanceTiles > 0 && (
           <>
+            <button
+              id="route-undo-btn"
+              type="button"
+              className="octo-bar-action"
+              disabled={Boolean(isTraveling)}
+              title="撤回最近一段墨线 (Ctrl+Z)"
+              onClick={onUndoRoute}
+            >
+              撤回上段
+            </button>
             <button
               id="route-clear-btn"
               type="button"

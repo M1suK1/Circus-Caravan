@@ -12,7 +12,7 @@ import type {
   TerrainType,
   WorldMapData,
 } from '../types.ts';
-import { extractWorldNeighbors, partitionRegionsGeodesic } from './worldProvinces.ts';
+import { applyBorderMountains, extractWorldNeighbors, partitionRegionsGeodesic } from './worldProvinces.ts';
 import {
   buildTectonicContinent,
   carveHydrology,
@@ -82,6 +82,7 @@ export function generateWorldMap(seed: number): WorldMapData {
   const field = buildTectonicContinent(seed);
   const { lakes, rivers, isLake, isRiver } = carveHydrology(field, seed);
   const regionGrid = partitionRegionsGeodesic(field, isLake, isRiver, seed);
+  applyBorderMountains(field, regionGrid, isLake, isRiver, seed);
 
   const terrain = new Uint8Array(total);
   const minX = new Int16Array(9).fill(WORLD_WIDTH - 1);

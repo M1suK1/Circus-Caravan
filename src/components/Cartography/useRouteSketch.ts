@@ -48,15 +48,17 @@ export function useRouteSketch(
   };
 
   const emitMerged = useCallback(
-    (newStroke: { x: number; y: number }[]) => {
+    (newStroke: { x: number; y: number }[]): RouteEvaluation | null => {
       const map = state.world.regions[state.world.currentRegionId].map;
-      if (!map) return;
+      if (!map) return null;
       if (newStroke.length < 2) {
         if (baseDraftRef.current) onDraftChange(baseDraftRef.current);
-        return;
+        return baseDraftRef.current;
       }
       const ext = evaluateRouteStroke(map, newStroke, state, evadeWar);
-      onDraftChange(baseDraftRef.current ? mergeRouteEvaluations(baseDraftRef.current, ext) : ext);
+      const merged = baseDraftRef.current ? mergeRouteEvaluations(baseDraftRef.current, ext) : ext;
+      onDraftChange(merged);
+      return merged;
     },
     [state, evadeWar, onDraftChange],
   );
@@ -141,22 +143,24 @@ export function useRouteSketch(
     emitMerged(strokeRef.current);
   };
 
-  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>): { committed: RouteEvaluation | null; previous: RouteEvaluation | null } | null => {
     if (panning) {
       setPanning(false);
       panAnchorRef.current = null;
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      return;
+      return null;
     }
-    if (!drawing) return;
+    if (!drawing) return null;
     setDrawing(false);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    emitMerged(strokeRef.current);
+    const committed = emitMerged(strokeRef.current);
+    const previous = preStrokeDraftRef.current;
     baseDraftRef.current = null;
+    return { committed, previous };
   };
 
   return {

@@ -22,8 +22,12 @@ export function BestiaryDialog({
 }) {
   const [elFilter, setElFilter] = useState<BeastElement | 'all'>('all');
   const [catFilter, setCatFilter] = useState<BeastCategory | 'all'>('all');
+  const [onlyCurrentRegion, setOnlyCurrentRegion] = useState(false);
   const [onlySeen, setOnlySeen] = useState(false);
   const [useBait, setUseBait] = useState(false);
+
+  const currentRegionId = state.world.currentRegionId;
+  const currentRegionName = REGION_CATALOG[currentRegionId].name;
 
   const encounteredSet = useMemo(() => {
     const s = new Set(state.encounteredSpeciesIds);
@@ -36,10 +40,11 @@ export function BestiaryDialog({
       BEAST_SPECIES.filter(sp => {
         if (elFilter !== 'all' && sp.element !== elFilter) return false;
         if (catFilter !== 'all' && sp.category !== catFilter) return false;
+        if (onlyCurrentRegion && !sp.habitatRegions.includes(currentRegionId)) return false;
         if (onlySeen && !encounteredSet.has(sp.id)) return false;
         return true;
       }),
-    [elFilter, catFilter, onlySeen, encounteredSet],
+    [elFilter, catFilter, onlyCurrentRegion, currentRegionId, onlySeen, encounteredSet],
   );
 
   const [selectedId, setSelectedId] = useState<string>(() => filtered[0]?.id ?? BEAST_SPECIES[0]!.id);
@@ -83,9 +88,20 @@ export function BestiaryDialog({
                 </button>
               );
             })}
-            <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: 'pointer' }}>
-              <input id="bestiary-only-seen" type="checkbox" checked={onlySeen} onChange={e => setOnlySeen(e.target.checked)} />
-              <span>仅看已遭遇</span>
+            <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 11 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input
+                  id="bestiary-only-region"
+                  type="checkbox"
+                  checked={onlyCurrentRegion}
+                  onChange={e => setOnlyCurrentRegion(e.target.checked)}
+                />
+                <span>仅看当前区域 ({currentRegionName})</span>
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input id="bestiary-only-seen" type="checkbox" checked={onlySeen} onChange={e => setOnlySeen(e.target.checked)} />
+                <span>仅看已遭遇</span>
+              </span>
             </label>
           </div>
 

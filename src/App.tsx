@@ -58,6 +58,7 @@ export function App() {
   const [zoom, setZoom] = useState<MapZoomMode>('region');
   const [evadeWar, setEvadeWar] = useState(false);
   const [routeDraft, setRouteDraft] = useState<RouteEvaluation | null>(null);
+  const [routeHistory, setRouteHistory] = useState<(RouteEvaluation | null)[]>([]);
   const [travelAnim, setTravelAnim] = useState<TravelAnimState | null>(null);
   const animRafRef = useRef<number | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -98,6 +99,7 @@ export function App() {
       return;
     }
     const draft = evaluateRouteStroke(map, autoPts, state, evadeWar);
+    setRouteHistory(prev => [...prev, routeDraft]);
     setRouteDraft(draft);
     setPage('map');
     if (zoom === 'world') setZoom('region');
@@ -107,7 +109,18 @@ export function App() {
         : `已沿主干道规划路径（${draft.distanceTiles} 里），可继续补画或按 Enter 启程。`,
       draft.blocked,
     );
-  }, [state, evadeWar, zoom, notify, travelAnim]);
+  }, [state, evadeWar, zoom, notify, travelAnim, routeDraft]);
+
+  const handleUndoRoute = useCallback(() => {
+    if (travelAnim || !routeDraft) return;
+    if (routeHistory.length === 0) {
+      setRouteDraft(null);
+      return;
+    }
+    const prev = routeHistory[routeHistory.length - 1] ?? null;
+    setRouteHistory(h => h.slice(0, -1));
+    setRouteDraft(prev);
+  }, [travelAnim, routeDraft, routeHistory]);
 
   const handleLaunchRoute = useCallback(() => {
     if (travelAnim || !routeDraft || routeDraft.validPoints.length < 2) return;
@@ -140,6 +153,7 @@ export function App() {
         const res = dispatch({ type: 'executeRoute', points, evadeWar });
         if (res.ok) {
           setRouteDraft(null);
+          setRouteHistory([]);
           const landedId = res.state.world.currentPoiId;
           const landedPoi = landedId
             ? res.state.world.regions[res.state.world.currentRegionId].map?.pois[landedId]
@@ -173,6 +187,7 @@ export function App() {
     setState(hydrated);
     setDirty(false);
     setRouteDraft(null);
+    setRouteHistory([]);
     notify('已读回最近一份手稿存档。');
   };
 
@@ -201,6 +216,9 @@ export function App() {
       } else if (e.key === 'Enter' && page === 'map' && !modal && !travelAnim && routeDraft && routeDraft.validPoints.length >= 2) {
         e.preventDefault();
         handleLaunchRoute();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && page === 'map' && !modal && !travelAnim && routeDraft) {
+        e.preventDefault();
+        handleUndoRoute();
       } else if (!modal && page === 'map') {
         if (e.key === '1') setZoom('world');
         else if (e.key === '2') setZoom('region');
@@ -209,7 +227,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [modal, page, travelAnim, routeDraft, handleLaunchRoute]);
+  }, [modal, page, travelAnim, routeDraft, handleLaunchRoute, handleUndoRoute]);
 
   const activePerformer: Performer | undefined = modal?.type === 'performer'
     ? state.performers.find(p => p.id === modal.id)
@@ -227,6 +245,9 @@ export function App() {
         onZoom={setZoom}
         routeDraft={routeDraft}
         onRouteDraft={setRouteDraft}
+        onCommitStroke={prevDraft => {
+          setRouteHistory(h => [...h, prevDraft]);
+        }}
         evadeWar={evadeWar}
         onToggleEvadeWar={() => setEvadeWar(v => !v)}
         onOpenScout={poi => setModal({ type: 'scout', poi })}
@@ -285,6 +306,7 @@ export function App() {
         onNewRandom={() => {
           stopTravelAnimation();
           setRouteDraft(null);
+          setRouteHistory([]);
           setPage('map');
           dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
         }}
@@ -307,7 +329,10 @@ export function App() {
         onCrossBorder={targetRegionId => {
           stopTravelAnimation();
           const res = dispatch({ type: 'crossBorder', targetRegionId });
-          if (res.ok) setRouteDraft(null);
+          if (res.ok) {
+            setRouteDraft(null);
+            setRouteHistory([]);
+          }
         }}
       />
 
@@ -316,8 +341,12 @@ export function App() {
         page={page}
         routeDraft={routeDraft}
         isTraveling={Boolean(travelAnim)}
+        onUndoRoute={handleUndoRoute}
         onClearRoute={() => {
-          if (!travelAnim) setRouteDraft(null);
+          if (!travelAnim) {
+            setRouteDraft(null);
+            setRouteHistory([]);
+          }
         }}
         onLaunchRoute={handleLaunchRoute}
         onReturnMap={() => setPage('map')}
