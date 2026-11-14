@@ -122,7 +122,7 @@ export function applyCrossBorder(state: CircusState, action: Extract<GameAction,
   const ey = entryGate?.y ?? Math.floor(destMap.height / 2);
 
   next.world.currentRegionId = targetRegion.id;
-  next.world.pos = { x: ex, y: ey };
+  next.world.pos = { x: ex + 0.5, y: ey + 0.5 };
   next.world.currentPoiId = undefined;
   revealCircleInMask(destMap, ex, ey, CARAVAN_VISION_RADIUS);
   pushLog(next, 'travel', `车队跨过边境进入「${targetRegion.name}」，10× 区域地形已展开。`);

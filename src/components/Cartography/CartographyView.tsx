@@ -5,6 +5,8 @@ import {
   Globe,
   LocateFixed,
   MapPin,
+  Minus,
+  Plus,
   Route,
   ShieldAlert,
   Sparkles,
@@ -17,7 +19,15 @@ import { worldRegionAt } from '../../domain/worldGen.ts';
 import type { CircusState, MapZoomMode, RouteEvaluation, SettlementPoi } from '../../types.ts';
 import { LegendCaravanSvg, LegendCitySvg, LegendVillageSvg } from '../CaravanCrestIcon.tsx';
 import { isSettlementRevealed } from './mapIcons.ts';
-import { renderCartographyCanvas } from './mapRenderer.ts';
+import {
+  FOLLOW_DEFAULT_ZOOM,
+  MAX_REGION_ZOOM,
+  MIN_REGION_ZOOM,
+  renderCartographyCanvas,
+  type RegionCamera,
+  type ViewportTransform,
+  zoomRegionAroundCursor,
+} from './mapRenderer.ts';
 import { useRouteSketch } from './useRouteSketch.ts';
 
 const TERRAIN_CN: Record<string, string> = {
@@ -64,22 +74,63 @@ export function CartographyView({
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const downClientRef = useRef<{ x: number; y: number } | null>(null);
+  const vpStateRef = useRef<ViewportTransform | null>(null);
+  const downClientRef = useRef<{ x: number; y: number; button: number } | null>(null);
   const [focusedPoiId, setFocusedPoiId] = useState<string | null>(null);
   const [cursorLabel, setCursorLabel] = useState<string>('');
 
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
+
+  const [camera, setCamera] = useState<Required<RegionCamera>>(() => ({
+    zoomScale: 1,
+    centerX: state.world.pos.x,
+    centerY: state.world.pos.y,
+  }));
+  const [followLocked, setFollowLocked] = useState<boolean>(zoom === 'follow');
+
+  // 预设层级切换或跨区时同步相机倍率与跟随锁定
+  useEffect(() => {
+    setFocusedPoiId(null);
+    if (zoom === 'region') {
+      setFollowLocked(false);
+      setCamera({
+        zoomScale: 1,
+        centerX: map ? map.width / 2 : state.world.pos.x,
+        centerY: map ? map.height / 2 : state.world.pos.y,
+      });
+    } else if (zoom === 'follow') {
+      setFollowLocked(true);
+      setCamera({
+        zoomScale: FOLLOW_DEFAULT_ZOOM,
+        centerX: state.world.pos.x,
+        centerY: state.world.pos.y,
+      });
+    }
+  }, [zoom, state.world.currentRegionId, state.world.seed]);
+
+  // 车队移动后，若处于跟随状态则相机自动平滑锚定大篷车新位置
+  useEffect(() => {
+    if (followLocked && zoom !== 'world') {
+      setCamera(prev => ({
+        ...prev,
+        centerX: state.world.pos.x,
+        centerY: state.world.pos.y,
+      }));
+    }
+  }, [state.world.pos.x, state.world.pos.y, followLocked, zoom]);
+
   const loadedCount = useMemo(
     () => REGION_IDS.filter(id => Boolean(state.world.regions[id].map)).length,
     [state.world.regions],
   );
 
-  const sketch = useRouteSketch(state, zoom, evadeWar, onRouteDraft);
+  const handlePanCamera = useCallback((updater: (prev: Required<RegionCamera>) => Required<RegionCamera>) => {
+    setFollowLocked(false);
+    setCamera(updater);
+  }, []);
 
-  useEffect(() => {
-    setFocusedPoiId(null);
-  }, [state.world.currentRegionId, state.world.seed, zoom]);
+  const sketch = useRouteSketch(state, zoom, evadeWar, onRouteDraft, handlePanCamera);
 
   const syncAndRender = useCallback(() => {
     const canvas = canvasRef.current;
@@ -93,9 +144,10 @@ export function CartographyView({
       canvas.width = w;
       canvas.height = h;
     }
-    const vp = renderCartographyCanvas(canvas, state, zoom, routeDraft);
+    const vp = renderCartographyCanvas(canvas, state, zoom, routeDraft, camera);
+    vpStateRef.current = vp;
     sketch.setViewport(vp);
-  }, [state, zoom, routeDraft, sketch]);
+  }, [state, zoom, routeDraft, camera, sketch]);
 
   useEffect(() => {
     syncAndRender();
@@ -111,8 +163,43 @@ export function CartographyView({
     return () => observer.disconnect();
   }, [syncAndRender]);
 
+  const stepZoom = (factor: number, cursorPx?: number, cursorPy?: number) => {
+    if (zoom === 'world') {
+      onZoom('region');
+      setFollowLocked(true);
+      setCamera({
+        zoomScale: 1.6,
+        centerX: state.world.pos.x,
+        centerY: state.world.pos.y,
+      });
+      return;
+    }
+    const vp = vpStateRef.current;
+    if (!vp) return;
+    const nextZoom = Math.max(MIN_REGION_ZOOM, Math.min(MAX_REGION_ZOOM, camera.zoomScale * factor));
+    const anchorPx = cursorPx ?? vp.canvasW * 0.46;
+    const anchorPy = cursorPy ?? vp.canvasH * 0.5;
+    setFollowLocked(false);
+    setCamera(zoomRegionAroundCursor(state, vp, anchorPx, anchorPy, nextZoom));
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!interactive) return;
+    const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+    if (zoom === 'world') {
+      if (e.deltaY < 0) stepZoom(factor);
+      return;
+    }
+    if (e.deltaY > 0 && camera.zoomScale <= MIN_REGION_ZOOM + 0.03) {
+      onZoom('world');
+      return;
+    }
+    const { px, py } = sketch.toCanvasPx(e.clientX, e.clientY, e.currentTarget);
+    stepZoom(factor, px, py);
+  };
+
   const currentTerrain = map
-    ? regionTerrainAt(map, Math.round(state.world.pos.x), Math.round(state.world.pos.y))
+    ? regionTerrainAt(map, Math.floor(state.world.pos.x), Math.floor(state.world.pos.y))
     : 'wasteland';
 
   const focusedPoi = focusedPoiId && map ? map.pois[focusedPoiId] : undefined;
@@ -123,10 +210,12 @@ export function CartographyView({
         <canvas
           id="cartography-canvas"
           ref={canvasRef}
-          className={`atlas-canvas ${zoom === 'world' ? 'pan-mode' : ''}`}
+          className={`atlas-canvas ${zoom === 'world' || sketch.panning ? 'pan-mode' : ''}`}
+          onContextMenu={e => e.preventDefault()}
+          onWheel={handleWheel}
           onPointerDown={e => {
             if (!interactive) return;
-            downClientRef.current = { x: e.clientX, y: e.clientY };
+            downClientRef.current = { x: e.clientX, y: e.clientY, button: e.button };
             sketch.onPointerDown(e);
           }}
           onPointerMove={e => {
@@ -135,8 +224,8 @@ export function CartographyView({
             if (map && zoom !== 'world') {
               const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
               if (pt) {
-                const gx = Math.round(pt.x);
-                const gy = Math.round(pt.y);
+                const gx = Math.floor(pt.x);
+                const gy = Math.floor(pt.y);
                 const explored = isTileExplored(map, gx, gy);
                 const t = regionTerrainAt(map, gx, gy);
                 setCursorLabel(
@@ -157,8 +246,7 @@ export function CartographyView({
             sketch.onPointerUp(e);
             const start = downClientRef.current;
             downClientRef.current = null;
-            // 轻点地图（位移 < 6px）：世界全图点当前疆域直入 10× 详图；疆域图点菱形地标弹出斥候便签
-            if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) {
+            if (start && start.button === 0 && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) {
               const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
               if (pt && zoom === 'world') {
                 const clickedReg = worldRegionAt(state.world.worldMap, Math.floor(pt.x), Math.floor(pt.y));
@@ -167,7 +255,7 @@ export function CartographyView({
                 }
               } else if (pt && map && zoom !== 'world') {
                 const hit = Object.values(map.pois).find(
-                  poi => isSettlementRevealed(map, poi, state.world.pos) && Math.hypot(poi.x + 0.5 - pt.x, poi.y + 0.5 - pt.y) <= 4.2,
+                  poi => isSettlementRevealed(map, poi, state.world.pos) && Math.hypot(poi.x + 0.5 - pt.x, poi.y + 0.5 - pt.y) <= 3.6,
                 );
                 if (hit) {
                   onRouteDraft(null);
@@ -180,13 +268,11 @@ export function CartographyView({
 
         {interactive && (
           <div className="octo-map-hud">
-            {/* 左上悬浮视距与潜行姿态控制条（避开左侧选单与顶部中央星盘） */}
-            <div className="octo-zoom-cluster" role="tablist" aria-label="舆图视距切换">
+            <div className="octo-zoom-cluster" role="toolbar" aria-label="舆图视距与无级缩放">
               <button
                 id="map-zoom-world"
                 type="button"
-                role="tab"
-                aria-selected={zoom === 'world'}
+                aria-pressed={zoom === 'world'}
                 className={`octo-zoom-pill ${zoom === 'world' ? 'active' : ''}`}
                 onClick={() => onZoom('world')}
               >
@@ -195,23 +281,80 @@ export function CartographyView({
               <button
                 id="map-zoom-region"
                 type="button"
-                role="tab"
-                aria-selected={zoom === 'region'}
-                className={`octo-zoom-pill ${zoom === 'region' ? 'active' : ''}`}
-                onClick={() => onZoom('region')}
+                aria-pressed={zoom === 'region' && camera.zoomScale <= 1.05}
+                className={`octo-zoom-pill ${zoom === 'region' && camera.zoomScale <= 1.05 ? 'active' : ''}`}
+                onClick={() => {
+                  onZoom('region');
+                  setFollowLocked(false);
+                  setCamera({
+                    zoomScale: 1,
+                    centerX: map ? map.width / 2 : state.world.pos.x,
+                    centerY: map ? map.height / 2 : state.world.pos.y,
+                  });
+                }}
               >
-                <Compass size={12} /><span>2 · 疆域 10×</span>
+                <Compass size={12} /><span>2 · 疆域全览</span>
               </button>
               <button
                 id="map-zoom-follow"
                 type="button"
-                role="tab"
-                aria-selected={zoom === 'follow'}
-                className={`octo-zoom-pill ${zoom === 'follow' ? 'active' : ''}`}
-                onClick={() => onZoom('follow')}
+                aria-pressed={zoom !== 'world' && followLocked && camera.zoomScale >= 3.5}
+                className={`octo-zoom-pill ${zoom !== 'world' && followLocked && camera.zoomScale >= 3.5 ? 'active' : ''}`}
+                onClick={() => {
+                  onZoom('follow');
+                  setFollowLocked(true);
+                  setCamera({
+                    zoomScale: FOLLOW_DEFAULT_ZOOM,
+                    centerX: state.world.pos.x,
+                    centerY: state.world.pos.y,
+                  });
+                }}
               >
                 <LocateFixed size={12} /><span>3 · 跟随车队</span>
               </button>
+
+              {/* 连续无级缩放控制组（滚轮 / 加减按钮 / 一键回正车队） */}
+              <div className="octo-zoom-stepper" role="group" aria-label="疆域地图无级缩放倍率">
+                <button
+                  id="map-zoom-out"
+                  type="button"
+                  className="octo-step-btn"
+                  aria-label="缩小地图视野"
+                  title="缩小视野（亦可使用鼠标滚轮）"
+                  disabled={zoom === 'world' || camera.zoomScale <= MIN_REGION_ZOOM + 0.01}
+                  onClick={() => stepZoom(1 / 1.3)}
+                >
+                  <Minus size={11} />
+                </button>
+                <button
+                  id="map-recenter-caravan"
+                  type="button"
+                  className="octo-zoom-readout"
+                  title="点击将镜头居中锁定回大篷车（右键拖拽可平移视野）"
+                  onClick={() => {
+                    if (zoom === 'world') onZoom('region');
+                    setFollowLocked(true);
+                    setCamera(prev => ({
+                      zoomScale: Math.max(2.2, prev.zoomScale),
+                      centerX: state.world.pos.x,
+                      centerY: state.world.pos.y,
+                    }));
+                  }}
+                >
+                  {zoom === 'world' ? '128²' : `${camera.zoomScale.toFixed(1)}×`}
+                </button>
+                <button
+                  id="map-zoom-in"
+                  type="button"
+                  className="octo-step-btn"
+                  aria-label="放大地图视野"
+                  title="放大视野（亦可使用鼠标滚轮定点缩放）"
+                  disabled={zoom !== 'world' && camera.zoomScale >= MAX_REGION_ZOOM - 0.01}
+                  onClick={() => stepZoom(1.3)}
+                >
+                  <Plus size={11} />
+                </button>
+              </div>
 
               <button
                 id="map-evade-war-toggle"
@@ -225,7 +368,6 @@ export function CartographyView({
               </button>
             </div>
 
-            {/* 点选地图菱形地标时弹出的精致羊皮斥候便签（.paper-note） */}
             {focusedPoi && (
               <div id="map-poi-quick-note" className="paper-note tone-ivory pinned octo-poi-popover">
                 <div className="card-head" style={{ marginBottom: 4 }}>
@@ -267,12 +409,12 @@ export function CartographyView({
               </div>
             )}
 
-            {/* 左下悬浮坐标读数与微缩铜版图例 */}
             <div className="octo-bottom-hud">
               <div className="octo-coord-strip">
                 <MapPin size={12} />
                 <span>
-                  {region.name} ({Math.round(state.world.pos.x)},{Math.round(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
+                  {region.name} ({Math.floor(state.world.pos.x)},{Math.floor(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
+                  {zoom !== 'world' ? ' · 滚轮缩放 / 右键拖移' : ''}
                   {cursorLabel ? ` ｜ 光标 ${cursorLabel}` : ''}
                 </span>
               </div>
@@ -280,9 +422,9 @@ export function CartographyView({
                 <span><LegendCaravanSvg />大篷车</span>
                 <span><LegendCitySvg />城郭</span>
                 <span><LegendVillageSvg />村寨</span>
-                <span><i className="legend-swatch" style={{ background: '#b89868' }} />古道(1.4×)</span>
-                <span><i className="legend-swatch" style={{ background: '#989068' }} />林地</span>
-                <span><i className="legend-swatch" style={{ background: '#88928b' }} />河海</span>
+                <span><i className="legend-swatch" style={{ background: '#c29c68' }} />古道(1.4×)</span>
+                <span><i className="legend-swatch" style={{ background: '#a4a06e' }} />林地</span>
+                <span><i className="legend-swatch" style={{ background: '#547680' }} />河海</span>
               </div>
             </div>
           </div>

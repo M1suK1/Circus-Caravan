@@ -475,7 +475,7 @@ export function HelmBar({
           </span>
         ) : (
           <span>
-            请选择选单项目，或在舆图上拖拽绘制路线 · 当前：<b>{region.name}</b>（{Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}）· {poiLabel}
+            请选择选单项目，或在舆图上拖拽绘制路线 · 当前：<b>{region.name}</b>（{Math.floor(state.world.pos.x)}, {Math.floor(state.world.pos.y)}）· {poiLabel}
           </span>
         )}
       </div>

@@ -34,6 +34,9 @@ export function normalizeState(raw: string | null): CircusState | null {
       candidate.world.regions[rId].neighbors = liveNeighbors[rId].map(n => ({ ...n }));
     }
   }
+  if (candidate.world.currentPoiId && Number.isInteger(candidate.world.pos.x) && Number.isInteger(candidate.world.pos.y)) {
+    candidate.world.pos = { x: candidate.world.pos.x + 0.5, y: candidate.world.pos.y + 0.5 };
+  }
   const cap = computeCaravanCapacity(candidate.caravan.wagons ?? []);
   candidate.caravan.maxWeight = cap.maxWeight;
   candidate.caravan.maxSeats = cap.maxSeats;

@@ -599,4 +599,5 @@ export type GameAction =
   | { type: 'hireCandidate'; candidateId: string }
   | { type: 'importCardAsPerformer'; card: GirlCard; role?: CircusRole }
   | { type: 'placeCardAsNpc'; card: GirlCard; poiId: string; occupation?: NpcOccupation; faction?: FactionId | 'neutral' }
-  | { type: 'setPerformerExpression'; performerId: string; expression: Expression };
+  | { type: 'setPerformerExpression'; performerId: string; expression: Expression }
+  | { type: 'setPerformerPortrait'; performerId: string; portrait: string };

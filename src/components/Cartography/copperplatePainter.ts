@@ -19,22 +19,22 @@ import {
 import type { RegionMap, TerrainType, WorldMapData } from '../../types.ts';
 
 const COPPER_TONE: Record<TerrainType, [number, number, number]> = {
-  outside: [224, 202, 164],
-  ocean: [144, 150, 143],
-  coast: [212, 192, 152],
-  lake: [136, 146, 142],
-  river: [122, 136, 134],
-  bridge: [176, 134, 84],
-  border_gate: [196, 142, 74],
-  wasteland: [228, 202, 156],
-  road: [205, 174, 126],
-  forest: [182, 172, 128],
-  swamp: [168, 156, 122],
-  mountain: [188, 156, 114],
-  ruin: [186, 158, 128],
-  warzone: [186, 124, 96],
-  city: [198, 138, 98],
-  village: [208, 156, 110],
+  outside: [220, 198, 158],
+  ocean: [142, 150, 144],
+  coast: [214, 194, 152],
+  lake: [96, 126, 134],
+  river: [84, 118, 128],
+  bridge: [176, 128, 74],
+  border_gate: [202, 140, 68],
+  wasteland: [230, 204, 158],
+  road: [194, 156, 104],
+  forest: [164, 160, 110],
+  swamp: [152, 144, 108],
+  mountain: [184, 150, 106],
+  ruin: [182, 152, 122],
+  warzone: [188, 116, 88],
+  city: [196, 122, 84],
+  village: [206, 146, 98],
 };
 
 const BASE_ELEV: Record<TerrainType, number> = {
@@ -264,7 +264,7 @@ export function rasterizeRegionCopperplate(
       const idx = y * w + x;
       const ter = TERRAIN_ORDER[terArr[idx]!] ?? 'outside';
       const explored = Boolean((mask[idx >> 3]! >> (idx & 7)) & 1);
-      const liveSeen = (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2;
+      const liveSeen = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r2;
       const p = idx * 4;
 
       if (ter === 'outside') {

@@ -1,6 +1,9 @@
 /**
  * 手动划线探索、地形速度/消耗演算与迷雾位掩码管理（纯函数）。
+ *
+ * 严格遵循栅格几何约定：整数格 (gx, gy) 占据连续坐标区间 [gx, gx + 1) × [gy, gy + 1)，格心位于 (gx + 0.5, gy + 0.5)。
  */
+import { regionTerrainArray } from './regionGen.ts';
 import { decodeBytes, encodeBytes, TERRAIN_ORDER } from './worldGen.ts';
 import type { CircusState, RegionMap, RouteEvaluation, TerrainType } from '../types.ts';
 
@@ -62,9 +65,11 @@ export function exploredMaskArray(map: RegionMap): Uint8Array {
 }
 
 export function isTileExplored(map: RegionMap, x: number, y: number): boolean {
-  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
+  const gx = Math.floor(x);
+  const gy = Math.floor(y);
+  if (gx < 0 || gy < 0 || gx >= map.width || gy >= map.height) return false;
   const mask = exploredMaskArray(map);
-  const idx = y * map.width + x;
+  const idx = gy * map.width + gx;
   return Boolean((mask[idx >> 3]! >> (idx & 7)) & 1);
 }
 
@@ -79,7 +84,7 @@ export function revealCircleInMask(map: RegionMap, cx: number, cy: number, radiu
 
   for (let y = minY; y <= maxY; y += 1) {
     for (let x = minX; x <= maxX; x += 1) {
-      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2) {
+      if ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r2 || (x - cx) ** 2 + (y - cy) ** 2 <= r2) {
         const idx = y * map.width + x;
         mask[idx >> 3] = mask[idx >> 3]! | (1 << (idx & 7));
       }
@@ -88,7 +93,44 @@ export function revealCircleInMask(map: RegionMap, cx: number, cy: number, radiu
   map.exploredMaskBase64 = encodeBytes(mask);
 }
 
-/** 根据车队沿手绘折线采样（步长 0.5 格），计算速度、消耗与障碍截断 */
+function terrainAtGrid(terrainArr: Uint8Array, w: number, h: number, gx: number, gy: number): TerrainType {
+  if (gx < 0 || gy < 0 || gx >= w || gy >= h) return 'outside';
+  return TERRAIN_ORDER[terrainArr[gy * w + gx]!] ?? 'outside';
+}
+
+/**
+ * 解析采样点 (sx, sy) 所在地形：
+ *  1. 严格使用 Math.floor(sx), Math.floor(sy) 对齐栅格 [gx, gx + 1)，彻底根除 Math.round 造成的半格误偏移；
+ *  2. 若手绘斜线跨过四邻接单格木桥或折线山道时轻微擦过格角（离双轴格边均 < 0.38 格，且该角两侧正交邻格皆可通行），
+ *     平滑取用可通行邻格，防止在桥梁/弯道上无端报红线；而真正画入河道、海面或山体时仍立即拦截。
+ */
+function resolveSampleTerrain(
+  terrainArr: Uint8Array,
+  w: number,
+  h: number,
+  sx: number,
+  sy: number,
+): TerrainType {
+  const gx = Math.floor(sx);
+  const gy = Math.floor(sy);
+  const direct = terrainAtGrid(terrainArr, w, h, gx, gy);
+  if (isPassableTerrain(direct)) return direct;
+
+  const fx = sx - gx;
+  const fy = sy - gy;
+  const nx = fx < 0.38 ? gx - 1 : fx > 0.62 ? gx + 1 : gx;
+  const ny = fy < 0.38 ? gy - 1 : fy > 0.62 ? gy + 1 : gy;
+  if (nx !== gx && ny !== gy) {
+    const tx = terrainAtGrid(terrainArr, w, h, nx, gy);
+    const ty = terrainAtGrid(terrainArr, w, h, gx, ny);
+    if (isPassableTerrain(tx) && isPassableTerrain(ty)) {
+      return TERRAIN_SPEED[tx] >= TERRAIN_SPEED[ty] ? tx : ty;
+    }
+  }
+  return direct;
+}
+
+/** 根据车队沿手绘折线采样（步长 <= 0.33 格），计算速度、消耗与障碍截断 */
 export function evaluateRouteStroke(
   map: RegionMap,
   rawPoints: readonly { x: number; y: number }[],
@@ -109,7 +151,7 @@ export function evaluateRouteStroke(
     };
   }
 
-  const terrainArr = decodeBytes(map.terrainBase64, map.width * map.height);
+  const terrainArr = regionTerrainArray(map);
   const validPoints: { x: number; y: number }[] = [rawPoints[0]!];
   let distanceTiles = 0;
   let weightedDays = 0;
@@ -124,20 +166,20 @@ export function evaluateRouteStroke(
     const a = rawPoints[i - 1]!;
     const b = rawPoints[i]!;
     const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-    if (segLen < 0.05) continue;
-    const steps = Math.max(1, Math.ceil(segLen * 2));
+    if (segLen < 0.04) continue;
+    const steps = Math.max(1, Math.ceil(segLen * 3));
     for (let s = 1; s <= steps; s += 1) {
       const t = s / steps;
       const sx = a.x + (b.x - a.x) * t;
       const sy = a.y + (b.y - a.y) * t;
-      const gx = Math.round(sx);
-      const gy = Math.round(sy);
+      const gx = Math.floor(sx);
+      const gy = Math.floor(sy);
       if (gx < 0 || gy < 0 || gx >= map.width || gy >= map.height) {
         blocked = true;
         blockReason = '路线超出当前区域范围，请在边境关口出境。';
         break;
       }
-      const ter = TERRAIN_ORDER[terrainArr[gy * map.width + gx]!] ?? 'outside';
+      const ter = resolveSampleTerrain(terrainArr, map.width, map.height, sx, sy);
       if (!isPassableTerrain(ter)) {
         blocked = true;
         blockReason = ter === 'ocean'
@@ -163,11 +205,9 @@ export function evaluateRouteStroke(
   }
 
   const end = validPoints[validPoints.length - 1]!;
-  const endGx = Math.round(end.x);
-  const endGy = Math.round(end.y);
-  const reachedGate = map.gates.find(g => Math.hypot(g.x - endGx, g.y - endGy) <= 2.2);
+  const reachedGate = map.gates.find(g => Math.hypot(g.x + 0.5 - end.x, g.y + 0.5 - end.y) <= 2.4);
   const reachedPoi = Object.values(map.pois).find(
-    p => p.footprint.some(c => Math.hypot(c.x - endGx, c.y - endGy) <= 1.8),
+    p => p.footprint.some(c => Math.hypot(c.x + 0.5 - end.x, c.y + 0.5 - end.y) <= 2.0),
   );
 
   const heads = state.performers.length + state.passengerOrders.filter(o => o.status === 'aboard').reduce((s, o) => s + o.seatsNeeded, 0);

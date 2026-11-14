@@ -139,3 +139,18 @@ export function applySetPerformerExpression(
   performer.expression = action.expression;
   return { state: next, ok: true };
 }
+
+export function applySetPerformerPortrait(
+  state: CircusState,
+  action: Extract<GameAction, { type: 'setPerformerPortrait' }>,
+): ActionResult {
+  if (!action.portrait.startsWith('data:image/')) {
+    return { state, ok: false, message: '请选择有效的立绘图片文件。' };
+  }
+  const next = clone(state);
+  const performer = next.performers.find(p => p.id === action.performerId);
+  if (!performer) return { state, ok: false, message: '找不到这位成员。' };
+  performer.portrait = action.portrait;
+  performer.portraitAsset = undefined;
+  return { state: next, ok: true, message: `已更新「${performer.name}」的全身立绘。` };
+}

@@ -1,15 +1,12 @@
 /**
- * 《八方旅人》风全屏底层铜版画三级舆图渲染器。
- *
- * 将离屏铜版画立体浮雕底图（copperplatePainter）与菱形纹章、黑针危级标牌及大篷车图标合成输出，
- * 自动感知左右悬浮墨栏留白，把地图黄金视觉焦点稳稳锚定在屏幕开放视野中央。
+ * 《八方旅人》风全屏底层铜版画舆图渲染器（最近邻锐利像素底图 + 高 DPI 屏幕空间版画笔触 + 连续无级缩放相机）。
  */
 import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
-import { CARAVAN_VISION_RADIUS } from '../../domain/routeDraw.ts';
+import { regionTerrainArray } from '../../domain/regionGen.ts';
+import { CARAVAN_VISION_RADIUS, exploredMaskArray } from '../../domain/routeDraw.ts';
+import { TERRAIN_ORDER, valueNoise2d, worldTerrainArray } from '../../domain/worldGen.ts';
 import type { CircusState, MapZoomMode, RegionMap, RouteEvaluation } from '../../types.ts';
 import {
-  paintRegionCopperplateDetails,
-  paintWorldCopperplateDetails,
   rasterizeRegionCopperplate,
   rasterizeWorldCopperplate,
 } from './copperplatePainter.ts';
@@ -24,6 +21,13 @@ import {
   isSettlementRevealed,
 } from './mapIcons.ts';
 
+export interface RegionCamera {
+  /** 疆域缩放倍率：1.0 为疆域全览，5.2 对应跟随车队近景，最大支持 8.5× */
+  zoomScale?: number;
+  centerX?: number;
+  centerY?: number;
+}
+
 export interface ViewportTransform {
   viewX: number;
   viewY: number;
@@ -31,7 +35,12 @@ export interface ViewportTransform {
   viewH: number;
   canvasW: number;
   canvasH: number;
+  zoomScale: number;
 }
+
+export const MIN_REGION_ZOOM = 1;
+export const MAX_REGION_ZOOM = 8.5;
+export const FOLLOW_DEFAULT_ZOOM = 5.2;
 
 interface CachedSurface {
   signature: string;
@@ -40,13 +49,12 @@ interface CachedSurface {
 
 const OFFSCREEN_CACHE = new WeakMap<object, CachedSurface>();
 
-function getBakedOffscreen(
+function getBakedPixelSurface(
   key: object,
   signature: string,
   w: number,
   h: number,
   rasterize: (buf: Uint8ClampedArray) => void,
-  paintVectors: (ctx: CanvasRenderingContext2D) => void,
 ): HTMLCanvasElement {
   const existing = OFFSCREEN_CACHE.get(key);
   if (existing && existing.signature === signature && existing.canvas.width === w && existing.canvas.height === h) {
@@ -59,9 +67,18 @@ function getBakedOffscreen(
   const img = ctx.createImageData(w, h);
   rasterize(img.data);
   ctx.putImageData(img, 0, 0);
-  paintVectors(ctx);
   OFFSCREEN_CACHE.set(key, { signature, canvas: c });
   return c;
+}
+
+function openStageBox(canvasW: number, canvasH: number) {
+  const padLeft = canvasW >= 1000 ? canvasW * 0.12 : 16;
+  const padRight = canvasW >= 1000 ? canvasW * 0.21 : 16;
+  const padTop = canvasH >= 600 ? canvasH * 0.07 : 12;
+  const padBottom = canvasH >= 600 ? canvasH * 0.05 : 12;
+  const availW = Math.max(160, canvasW - padLeft - padRight);
+  const availH = Math.max(140, canvasH - padTop - padBottom);
+  return { padLeft, padTop, availW, availH };
 }
 
 export function computeViewport(
@@ -69,39 +86,36 @@ export function computeViewport(
   zoom: MapZoomMode,
   canvasW: number,
   canvasH: number,
+  camera?: RegionCamera,
 ): ViewportTransform {
   const regionMap = state.world.regions[state.world.currentRegionId].map;
   if (zoom === 'world' || !regionMap) {
-    return { viewX: 0, viewY: 0, viewW: 128, viewH: 128, canvasW, canvasH };
+    return { viewX: 0, viewY: 0, viewW: 128, viewH: 128, canvasW, canvasH, zoomScale: 1 };
   }
-  if (zoom === 'region') {
-    return { viewX: 0, viewY: 0, viewW: regionMap.width, viewH: regionMap.height, canvasW, canvasH };
-  }
-  const availW = canvasW >= 1000 ? canvasW * 0.67 : Math.max(160, canvasW - 32);
-  const availH = canvasH >= 600 ? canvasH * 0.88 : Math.max(140, canvasH - 24);
-  const aspect = availW / Math.max(1, availH);
-  const viewH = 42;
-  const viewW = Math.round(viewH * aspect);
-  const vx = Math.max(0, Math.min(regionMap.width - viewW, state.world.pos.x - viewW / 2));
-  const vy = Math.max(0, Math.min(regionMap.height - viewH, state.world.pos.y - viewH / 2));
-  return {
-    viewX: Math.max(0, vx),
-    viewY: Math.max(0, vy),
-    viewW: Math.min(regionMap.width, viewW),
-    viewH: Math.min(regionMap.height, viewH),
-    canvasW,
-    canvasH,
-  };
+
+  const { availW, availH } = openStageBox(canvasW, canvasH);
+  const baseScale = Math.min(availW / regionMap.width, availH / regionMap.height);
+  const defaultZoom = zoom === 'follow' ? FOLLOW_DEFAULT_ZOOM : 1;
+  const zoomScale = Math.max(MIN_REGION_ZOOM, Math.min(MAX_REGION_ZOOM, camera?.zoomScale ?? defaultZoom));
+  const scale = baseScale * zoomScale;
+  const viewW = availW / scale;
+  const viewH = availH / scale;
+
+  const targetCx = camera?.centerX ?? (zoom === 'follow' ? state.world.pos.x : regionMap.width / 2);
+  const targetCy = camera?.centerY ?? (zoom === 'follow' ? state.world.pos.y : regionMap.height / 2);
+
+  const viewX = viewW >= regionMap.width
+    ? (regionMap.width - viewW) / 2
+    : Math.max(0, Math.min(regionMap.width - viewW, targetCx - viewW / 2));
+  const viewY = viewH >= regionMap.height
+    ? (regionMap.height - viewH) / 2
+    : Math.max(0, Math.min(regionMap.height - viewH, targetCy - viewH / 2));
+
+  return { viewX, viewY, viewW, viewH, canvasW, canvasH, zoomScale };
 }
 
 function stageMetrics(vp: ViewportTransform) {
-  // 留出左侧悬浮尖角选单与右侧半透明队伍栏的视觉重心偏置，使大陆主体居于开阔区中央
-  const padLeft = vp.canvasW >= 1000 ? vp.canvasW * 0.12 : 16;
-  const padRight = vp.canvasW >= 1000 ? vp.canvasW * 0.21 : 16;
-  const padTop = vp.canvasH >= 600 ? vp.canvasH * 0.07 : 12;
-  const padBottom = vp.canvasH >= 600 ? vp.canvasH * 0.05 : 12;
-  const availW = Math.max(160, vp.canvasW - padLeft - padRight);
-  const availH = Math.max(140, vp.canvasH - padTop - padBottom);
+  const { padLeft, padTop, availW, availH } = openStageBox(vp.canvasW, vp.canvasH);
   const scale = Math.min(availW / vp.viewW, availH / vp.viewH);
   const drawW = vp.viewW * scale;
   const drawH = vp.viewH * scale;
@@ -134,39 +148,182 @@ export function canvasPxToMap(
   };
 }
 
+/**
+ * 以鼠标所在屏幕像素 (cursorPx, cursorPy) 为锚点计算无级缩放后的相机中心，
+ * 确保滚轮缩放前后光标下的地图格点纹丝不动。
+ */
+export function zoomRegionAroundCursor(
+  state: CircusState,
+  currentVp: ViewportTransform,
+  cursorPx: number,
+  cursorPy: number,
+  rawNextZoom: number,
+): Required<RegionCamera> {
+  const regionMap = state.world.regions[state.world.currentRegionId].map;
+  const zoomScale = Math.max(MIN_REGION_ZOOM, Math.min(MAX_REGION_ZOOM, Number(rawNextZoom.toFixed(3))));
+  if (!regionMap) {
+    return { zoomScale, centerX: state.world.pos.x, centerY: state.world.pos.y };
+  }
+  const anchor = canvasPxToMap(cursorPx, cursorPy, currentVp);
+  const { padLeft, padTop, availW, availH } = openStageBox(currentVp.canvasW, currentVp.canvasH);
+  const baseScale = Math.min(availW / regionMap.width, availH / regionMap.height);
+  const nextScale = baseScale * zoomScale;
+  const nextViewW = availW / nextScale;
+  const nextViewH = availH / nextScale;
+  const nextViewX = anchor.x - (cursorPx - padLeft) / nextScale;
+  const nextViewY = anchor.y - (cursorPy - padTop) / nextScale;
+  return {
+    zoomScale,
+    centerX: nextViewX + nextViewW / 2,
+    centerY: nextViewY + nextViewH / 2,
+  };
+}
+
 function paintSunburstAndVignette(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-  // 顶部星盘下方暖阳金光漫射（复刻《八方旅人》地图顶部圣光感）
   const sun = ctx.createRadialGradient(w * 0.46, h * 0.04, 10, w * 0.46, h * 0.08, Math.max(w, h) * 0.55);
-  sun.addColorStop(0, 'rgba(255, 244, 206, 0.38)');
-  sun.addColorStop(0.38, 'rgba(246, 214, 148, 0.14)');
+  sun.addColorStop(0, 'rgba(255, 244, 206, 0.34)');
+  sun.addColorStop(0.38, 'rgba(246, 214, 148, 0.12)');
   sun.addColorStop(1, 'rgba(246, 214, 148, 0)');
   ctx.fillStyle = sun;
   ctx.fillRect(0, 0, w, h);
 
-  // 四周古旧烟熏暗角，与外围雕花金框及左右墨栏自然过渡
   const vig = ctx.createRadialGradient(w * 0.46, h * 0.5, Math.min(w, h) * 0.28, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
   vig.addColorStop(0, 'rgba(32, 20, 10, 0)');
-  vig.addColorStop(0.76, 'rgba(34, 22, 12, 0.18)');
-  vig.addColorStop(1, 'rgba(20, 13, 8, 0.52)');
+  vig.addColorStop(0.78, 'rgba(34, 22, 12, 0.16)');
+  vig.addColorStop(1, 'rgba(20, 13, 8, 0.48)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
+}
+
+/** 在最近邻锐利像素底图之上，按主画布高 DPI 分辨率绘制山峰人字笔触与林木墨弧（杜绝低分放大糊化） */
+function paintWorldScreenInk(ctx: CanvasRenderingContext2D, state: CircusState, vp: ViewportTransform): void {
+  const world = state.world.worldMap;
+  const terArr = worldTerrainArray(world);
+  const { scale } = stageMetrics(vp);
+  if (scale < 2.2) return;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (let y = 3; y < world.height - 3; y += 2) {
+    for (let x = 3; x < world.width - 3; x += 2) {
+      const ter = TERRAIN_ORDER[terArr[y * world.width + x]!] ?? 'ocean';
+      if (ter !== 'mountain' && ter !== 'forest') continue;
+      const jx = (valueNoise2d(x, y, 1.7, world.seed + 41) - 0.5) * 0.6;
+      const jy = (valueNoise2d(x, y, 1.7, world.seed + 83) - 0.5) * 0.6;
+      const { px, py } = mapToCanvasPx(x + 0.5 + jx, y + 0.5 + jy, vp);
+
+      if (ter === 'mountain') {
+        const mw = scale * 1.15;
+        const mh = scale * 1.05;
+        ctx.beginPath();
+        ctx.moveTo(px - mw, py + mh * 0.75);
+        ctx.lineTo(px, py - mh);
+        ctx.lineTo(px + mw, py + mh * 0.75);
+        ctx.strokeStyle = 'rgba(44, 26, 13, 0.82)';
+        ctx.lineWidth = Math.max(1.1, scale * 0.22);
+        ctx.stroke();
+      } else if (((x + y) & 2) === 0) {
+        ctx.beginPath();
+        ctx.arc(px, py, scale * 0.52, Math.PI, 0);
+        ctx.strokeStyle = 'rgba(58, 50, 30, 0.56)';
+        ctx.lineWidth = Math.max(1.0, scale * 0.18);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function paintRegionScreenInk(
+  ctx: CanvasRenderingContext2D,
+  map: RegionMap,
+  caravanPos: { x: number; y: number },
+  vp: ViewportTransform,
+): void {
+  const { scale } = stageMetrics(vp);
+  if (scale < 1.8) return;
+  const terArr = regionTerrainArray(map);
+  const mask = exploredMaskArray(map);
+  const cx = caravanPos.x;
+  const cy = caravanPos.y;
+  const r2 = CARAVAN_VISION_RADIUS * CARAVAN_VISION_RADIUS;
+
+  const minX = Math.max(2, Math.floor(vp.viewX - 4));
+  const maxX = Math.min(map.width - 3, Math.ceil(vp.viewX + vp.viewW + 4));
+  const minY = Math.max(2, Math.floor(vp.viewY - 4));
+  const maxY = Math.min(map.height - 3, Math.ceil(vp.viewY + vp.viewH + 4));
+
+  const isRevealed = (x: number, y: number): boolean => {
+    const idx = y * map.width + x;
+    return Boolean((mask[idx >> 3]! >> (idx & 7)) & 1) || (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r2;
+  };
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const step = scale >= 7 ? 2 : 3;
+
+  for (let y = minY - (minY % step); y <= maxY; y += step) {
+    for (let x = minX - (minX % step); x <= maxX; x += step) {
+      if (x < 2 || y < 2) continue;
+      const ter = TERRAIN_ORDER[terArr[y * map.width + x]!] ?? 'outside';
+      if (ter === 'outside') continue;
+      const rev = isRevealed(x, y);
+
+      if (!rev) {
+        if (isRevealed(x - 2, y) || isRevealed(x + 2, y) || isRevealed(x, y - 2) || isRevealed(x, y + 2)) {
+          const { px, py } = mapToCanvasPx(x + 0.5, y + 0.5, vp);
+          const cr = (1.7 + valueNoise2d(x, y, 2.8, map.seed + 701) * 1.1) * scale;
+          ctx.beginPath();
+          ctx.arc(px, py, cr, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(248, 236, 210, 0.84)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(116, 86, 52, 0.48)';
+          ctx.lineWidth = Math.max(1.0, scale * 0.2);
+          ctx.stroke();
+        }
+        continue;
+      }
+
+      if (ter === 'mountain') {
+        const { px, py } = mapToCanvasPx(x + 0.5, y + 0.5, vp);
+        const mw = scale * 1.45;
+        const mh = scale * 1.3;
+        ctx.beginPath();
+        ctx.moveTo(px - mw, py + mh * 0.72);
+        ctx.lineTo(px, py - mh);
+        ctx.lineTo(px + mw, py + mh * 0.72);
+        ctx.strokeStyle = 'rgba(44, 26, 13, 0.82)';
+        ctx.lineWidth = Math.max(1.15, scale * 0.22);
+        ctx.stroke();
+      } else if (ter === 'forest') {
+        const { px, py } = mapToCanvasPx(x + 0.5, y + 0.5, vp);
+        ctx.beginPath();
+        ctx.arc(px - scale * 0.42, py + scale * 0.15, scale * 0.62, Math.PI, 0);
+        ctx.arc(px + scale * 0.45, py + scale * 0.15, scale * 0.56, Math.PI, 0);
+        ctx.strokeStyle = 'rgba(58, 50, 30, 0.56)';
+        ctx.lineWidth = Math.max(1.0, scale * 0.18);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
 }
 
 function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: ViewportTransform): void {
   const ctx = canvas.getContext('2d')!;
   const world = state.world.worldMap;
-  const sig = `world:${world.seed}:${world.terrainBase64.length}`;
+  const sig = `world-px:${world.seed}:${world.terrainBase64.length}`;
 
-  const off = getBakedOffscreen(
+  const off = getBakedPixelSurface(
     world,
     sig,
     world.width,
     world.height,
     buf => rasterizeWorldCopperplate(world, buf),
-    offCtx => paintWorldCopperplateDetails(offCtx, world),
   );
 
-  // 全屏底图外延铺满古铜版海面底色与细排线经纬网，使宽屏左右墨栏底下亦呈现连贯海图肌理
   ctx.fillStyle = '#7e8781';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = 'rgba(54, 46, 36, 0.18)';
@@ -182,42 +339,45 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
   }
   ctx.stroke();
 
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  // 强制最近邻像素采样并对齐整数物理像素，彻底消除 128×128 大陆全图插值发糊
+  ctx.imageSmoothingEnabled = false;
   const topLeft = mapToCanvasPx(0, 0, vp);
   const botRight = mapToCanvasPx(world.width, world.height, vp);
-  ctx.drawImage(off, topLeft.px, topLeft.py, botRight.px - topLeft.px, botRight.py - topLeft.py);
+  const dx = Math.round(topLeft.px);
+  const dy = Math.round(topLeft.py);
+  const dw = Math.round(botRight.px - topLeft.px);
+  const dh = Math.round(botRight.py - topLeft.py);
+  ctx.drawImage(off, dx, dy, dw, dh);
 
+  paintWorldScreenInk(ctx, state, vp);
   paintSunburstAndVignette(ctx, canvas.width, canvas.height);
 
-  // 已展开区域内的探明城郭与村寨菱形微缩纹章
   for (const rId of REGION_IDS) {
     const rMap = state.world.regions[rId].map;
     if (!rMap) continue;
     const refPos = rId === state.world.currentRegionId ? state.world.pos : { x: -999, y: -999 };
     for (const poi of Object.values(rMap.pois)) {
       if (!isSettlementRevealed(rMap, poi, refPos)) continue;
-      const wx = (rMap.worldOffsetX + poi.x) / 10;
-      const wy = (rMap.worldOffsetY + poi.y) / 10;
+      const wx = (rMap.worldOffsetX + poi.x + 0.5) / 10;
+      const wy = (rMap.worldOffsetY + poi.y + 0.5) / 10;
       const pt = mapToCanvasPx(wx, wy, vp);
       if (poi.kind === 'city') drawCityIcon(ctx, pt.px, pt.py, 15, poi.scouted);
       else drawVillageIcon(ctx, pt.px, pt.py, 12, poi.scouted);
     }
   }
 
-  // 标注 9 大自然疆域：当前所在疆域立起八方旅人竖向黑针危级标牌，其余疆域采用古典铜版衬线铭文
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (const id of REGION_IDS) {
     const b = world.regionBounds[id];
-    const pt = mapToCanvasPx(b.centerX, b.centerY, vp);
+    const pt = mapToCanvasPx(b.centerX + 0.5, b.centerY + 0.5, vp);
     const meta = REGION_CATALOG[id];
     if (id === state.world.currentRegionId) {
       drawOctopathBannerCallout(ctx, pt.px, pt.py - 4, meta.name, `危级 LV.${meta.dangerTier}`, true);
     } else {
       const loaded = Boolean(state.world.regions[id].map);
       ctx.font = '600 12px "Noto Serif SC", serif';
-      ctx.strokeStyle = 'rgba(244, 230, 198, 0.88)';
+      ctx.strokeStyle = 'rgba(244, 230, 198, 0.9)';
       ctx.lineWidth = 3;
       ctx.strokeText(meta.name, pt.px, pt.py);
       ctx.fillStyle = loaded ? '#23170e' : '#4f3e2d';
@@ -244,34 +404,40 @@ function drawRegionCanvas(
   const ctx = canvas.getContext('2d')!;
   const cx = state.world.pos.x;
   const cy = state.world.pos.y;
-  const sig = `reg:${map.seed}:${map.exploredMaskBase64}:${Math.round(cx)}:${Math.round(cy)}`;
+  const sig = `reg-px:${map.seed}:${map.exploredMaskBase64}:${Math.floor(cx)}:${Math.floor(cy)}`;
 
-  const off = getBakedOffscreen(
+  const off = getBakedPixelSurface(
     map,
     sig,
     map.width,
     map.height,
     buf => rasterizeRegionCopperplate(map, state.world.pos, buf),
-    offCtx => paintRegionCopperplateDetails(offCtx, map, state.world.pos),
   );
 
   ctx.fillStyle = '#c4ac84';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.imageSmoothingEnabled = vp.viewW > 90;
+  // 疆域底图同样强制最近邻锐利像素贴图，缩放至任何倍率皆清晰分明
+  ctx.imageSmoothingEnabled = false;
   const p0 = mapToCanvasPx(0, 0, vp);
   const p1 = mapToCanvasPx(map.width, map.height, vp);
-  ctx.drawImage(off, p0.px, p0.py, p1.px - p0.px, p1.py - p0.py);
+  ctx.drawImage(
+    off,
+    Math.round(p0.px),
+    Math.round(p0.py),
+    Math.round(p1.px - p0.px),
+    Math.round(p1.py - p0.py),
+  );
 
+  paintRegionScreenInk(ctx, map, state.world.pos, vp);
   paintSunburstAndVignette(ctx, canvas.width, canvas.height);
 
   const { scale: pxPerTile } = stageMetrics(vp);
-  const citySize = Math.max(22, Math.min(34, pxPerTile * 3.5));
-  const villageSize = Math.max(17, Math.min(26, pxPerTile * 2.8));
-  const gateSize = Math.max(16, Math.min(23, pxPerTile * 2.5));
-  const caravanSize = Math.max(25, Math.min(38, pxPerTile * 3.9));
+  const citySize = Math.max(21, Math.min(34, pxPerTile * 3.2));
+  const villageSize = Math.max(17, Math.min(26, pxPerTile * 2.5));
+  const gateSize = Math.max(16, Math.min(23, pxPerTile * 2.3));
+  const caravanSize = Math.max(24, Math.min(36, pxPerTile * 3.5));
 
-  // 手动划线路径预览（古典深褐双层墨迹 + 受阻朱砂红虚线）
   if (routeDraft && routeDraft.points.length >= 2) {
     if (routeDraft.validPoints.length >= 2) {
       ctx.beginPath();
@@ -281,7 +447,7 @@ function drawRegionCanvas(
         const p = mapToCanvasPx(routeDraft.validPoints[i]!.x, routeDraft.validPoints[i]!.y, vp);
         ctx.lineTo(p.px, p.py);
       }
-      ctx.strokeStyle = 'rgba(250, 236, 204, 0.75)';
+      ctx.strokeStyle = 'rgba(250, 236, 204, 0.78)';
       ctx.lineWidth = 4.6;
       ctx.stroke();
       ctx.setLineDash([7, 4]);
@@ -306,7 +472,6 @@ function drawRegionCanvas(
     }
   }
 
-  // 显示范围内已探明的跨区关口菱形图标与指引铭牌
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   for (const gate of collectVisibleGateMarkers(map, state.world.pos, vp)) {
@@ -316,20 +481,19 @@ function drawRegionCanvas(
     drawOctopathBannerCallout(ctx, pos.px, pos.py - gateSize * 0.45, `往 ${destMeta.name}`, `危级 LV.${destMeta.dangerTier}`, false);
   }
 
-  // 显示范围内已探明的城郭与村寨：菱形纹章 + 八方旅人竖向黑针标牌
   const visiblePois = collectVisibleSettlementMarkers(map, state.world.pos, vp, state.world.currentPoiId);
   const regDanger = state.world.regions[state.world.currentRegionId].dangerTier;
-  let parkedNearPoi = false;
   for (const marker of visiblePois) {
-    if (Math.hypot(marker.x - cx, marker.y - cy) < 2.2) parkedNearPoi = true;
     const pos = mapToCanvasPx(marker.x + 0.5, marker.y + 0.5, vp);
     const sz = marker.kind === 'city' ? citySize : villageSize;
+    const overlapCaravan = Math.hypot(marker.x + 0.5 - cx, marker.y + 0.5 - cy) < 2.0;
+    const bannerLift = overlapCaravan ? Math.max(sz * 0.55, caravanSize * 0.78) : sz * 0.5;
     if (marker.kind === 'city') {
       drawCityIcon(ctx, pos.px, pos.py, sz, marker.scouted);
       drawOctopathBannerCallout(
         ctx,
         pos.px,
-        pos.py - sz * 0.5,
+        pos.py - bannerLift,
         marker.label,
         marker.scouted ? `危级 LV.${regDanger}` : '待侦查',
         marker.isCurrent || marker.scouted,
@@ -337,7 +501,7 @@ function drawRegionCanvas(
     } else {
       drawVillageIcon(ctx, pos.px, pos.py, sz, marker.scouted);
       if (marker.isCurrent) {
-        drawOctopathBannerCallout(ctx, pos.px, pos.py - sz * 0.48, marker.label, '驻扎中', true);
+        drawOctopathBannerCallout(ctx, pos.px, pos.py - bannerLift, marker.label, '驻扎中', true);
       } else {
         ctx.font = '600 11.5px "Noto Serif SC", serif';
         ctx.strokeStyle = 'rgba(250, 240, 216, 0.94)';
@@ -349,7 +513,7 @@ function drawRegionCanvas(
     }
   }
 
-  // 大篷车风灯视野金环与专属篷车棋子
+  // 大篷车图标严格锚定在真实逻辑坐标 (cx, cy) 正中心，确保指针划线起点 1:1 零偏移
   const cPx = mapToCanvasPx(cx, cy, vp);
   const edgePx = mapToCanvasPx(cx + CARAVAN_VISION_RADIUS, cy, vp);
   const visPx = Math.max(14, Math.abs(edgePx.px - cPx.px));
@@ -361,9 +525,7 @@ function drawRegionCanvas(
   ctx.stroke();
   ctx.setLineDash([]);
 
-  const wagonOffsetX = parkedNearPoi ? caravanSize * 0.62 : 0;
-  const wagonOffsetY = parkedNearPoi ? caravanSize * 0.22 : 0;
-  drawCaravanIcon(ctx, cPx.px + wagonOffsetX, cPx.py + wagonOffsetY, caravanSize);
+  drawCaravanIcon(ctx, cPx.px, cPx.py, caravanSize);
 }
 
 export function renderCartographyCanvas(
@@ -371,8 +533,9 @@ export function renderCartographyCanvas(
   state: CircusState,
   zoom: MapZoomMode,
   routeDraft: RouteEvaluation | null,
+  camera?: RegionCamera,
 ): ViewportTransform {
-  const vp = computeViewport(state, zoom, canvas.width, canvas.height);
+  const vp = computeViewport(state, zoom, canvas.width, canvas.height, camera);
   const regionMap = state.world.regions[state.world.currentRegionId].map;
   if (zoom === 'world' || !regionMap) {
     drawWorldCanvas(canvas, state, vp);

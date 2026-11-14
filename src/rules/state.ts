@@ -189,7 +189,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
       seed,
       spawnRegionId,
       currentRegionId: spawnRegionId,
-      pos: { x: startPoi.x, y: startPoi.y },
+      pos: { x: startPoi.x + 0.5, y: startPoi.y + 0.5 },
       currentPoiId: startPoi.id,
       worldMap,
       regions,

@@ -64,7 +64,7 @@ export function App() {
   const handleAssistSketchTo = useCallback((tx: number, ty: number) => {
     const map = state.world.regions[state.world.currentRegionId].map;
     if (!map) return;
-    const draft = evaluateRouteStroke(map, [state.world.pos, { x: tx, y: ty }], state, evadeWar);
+    const draft = evaluateRouteStroke(map, [state.world.pos, { x: tx + 0.5, y: ty + 0.5 }], state, evadeWar);
     setRouteDraft(draft);
     setPage('map');
     if (zoom === 'world') setZoom('region');
@@ -268,9 +268,12 @@ export function App() {
       {modal?.type === 'performer' && activePerformer && (
         <PerformerDialog
           performer={activePerformer}
+          day={state.day}
           regionName={activeRegion.name}
           onClose={() => setModal(null)}
           onChangeExpression={(performerId, expression) => dispatch({ type: 'setPerformerExpression', performerId, expression })}
+          onChangePortrait={(performerId, portrait) => dispatch({ type: 'setPerformerPortrait', performerId, portrait })}
+          onNotify={notify}
         />
       )}
 

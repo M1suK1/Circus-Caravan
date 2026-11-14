@@ -5,6 +5,7 @@ import {
   applyPlaceCardAsNpc,
   applyRepairWagon,
   applySetPerformerExpression,
+  applySetPerformerPortrait,
   applyUpgradeWagon,
 } from './crewOps.ts';
 import { createInitialState } from './state.ts';
@@ -32,6 +33,8 @@ export function act(state: CircusState, action: GameAction): ActionResult {
       return applyPlaceCardAsNpc(state, action);
     case 'setPerformerExpression':
       return applySetPerformerExpression(state, action);
+    case 'setPerformerPortrait':
+      return applySetPerformerPortrait(state, action);
     default:
       return { state, ok: false, message: '未知操作。' };
   }
