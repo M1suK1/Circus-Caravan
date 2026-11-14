@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
   Compass,
@@ -17,6 +17,8 @@ import { REGION_IDS } from '../../content/regions.ts';
 import { regionTerrainAt } from '../../domain/regionGen.ts';
 import { isTileExplored } from '../../domain/routeDraw.ts';
 import type { CircusState, MapZoomMode, RegionId, RouteEvaluation, SettlementPoi } from '../../types.ts';
+import { LegendCaravanSvg, LegendCitySvg, LegendVillageSvg } from '../CaravanCrestIcon.tsx';
+import { isSettlementRevealed } from './mapIcons.ts';
 import { renderCartographyCanvas } from './mapRenderer.ts';
 import { useRouteSketch } from './useRouteSketch.ts';
 
@@ -62,6 +64,7 @@ export function CartographyView({
   onCrossBorder: (targetRegionId: RegionId) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
 }) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
@@ -69,12 +72,14 @@ export function CartographyView({
 
   const sketch = useRouteSketch(state, zoom, evadeWar, onRouteDraft);
 
-  useEffect(() => {
+  const syncAndRender = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(640, Math.round(rect.width * (window.devicePixelRatio || 1)));
-    const h = Math.max(400, Math.round(rect.height * (window.devicePixelRatio || 1)));
+    const host = viewportRef.current;
+    if (!canvas || !host) return;
+    const rect = host.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(480, Math.round(rect.width * dpr));
+    const h = Math.max(280, Math.round(rect.height * dpr));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -83,6 +88,20 @@ export function CartographyView({
     sketch.setViewport(vp);
   }, [state, zoom, routeDraft, sketch]);
 
+  useEffect(() => {
+    syncAndRender();
+  }, [syncAndRender]);
+
+  useEffect(() => {
+    const host = viewportRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      syncAndRender();
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [syncAndRender]);
+
   const currentTerrain = map
     ? regionTerrainAt(map, Math.round(state.world.pos.x), Math.round(state.world.pos.y))
     : 'wasteland';
@@ -90,17 +109,15 @@ export function CartographyView({
 
   const visiblePois = useMemo(() => {
     if (!map) return [];
-    return Object.values(map.pois).filter(
-      poi => isTileExplored(map, poi.x, poi.y) || Math.hypot(poi.x - state.world.pos.x, poi.y - state.world.pos.y) <= 14,
-    );
-  }, [map, state.world.pos.x, state.world.pos.y]);
+    return Object.values(map.pois).filter(poi => isSettlementRevealed(map, poi, state.world.pos));
+  }, [map, state.world.pos]);
 
   const reachableGates = useMemo(() => {
     if (!map) return [];
     return map.gates.map(g => ({
       ...g,
       dist: Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y),
-      seen: isTileExplored(map, g.x, g.y),
+      seen: isTileExplored(map, g.x, g.y) || Math.hypot(g.x - state.world.pos.x, g.y - state.world.pos.y) <= 12,
     }));
   }, [map, state.world.pos.x, state.world.pos.y]);
 
@@ -119,7 +136,7 @@ export function CartographyView({
               className={`silk-tab tone-indigo ${zoom === 'world' ? 'active' : ''}`}
               onClick={() => onZoom('world')}
             >
-              <Globe size={13} /><span>世界地图 (128×128)</span>
+              <Globe size={12} /><span>世界地图 (128×128)</span>
             </button>
             <button
               id="map-zoom-region"
@@ -129,7 +146,7 @@ export function CartographyView({
               className={`silk-tab ${zoom === 'region' ? 'active' : ''}`}
               onClick={() => onZoom('region')}
             >
-              <Compass size={13} /><span>区域地图 (10×放大)</span>
+              <Compass size={12} /><span>区域地图 (10×放大)</span>
             </button>
             <button
               id="map-zoom-follow"
@@ -139,26 +156,26 @@ export function CartographyView({
               className={`silk-tab tone-amber ${zoom === 'follow' ? 'active' : ''}`}
               onClick={() => onZoom('follow')}
             >
-              <LocateFixed size={13} /><span>跟随马车周边</span>
+              <LocateFixed size={12} /><span>跟随马车周边</span>
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 6 }}>
             <button
               id="map-evade-war-toggle"
               type="button"
               className={`btn sm ${evadeWar ? 'amber' : ''}`}
               aria-pressed={evadeWar}
               onClick={onToggleEvadeWar}
-              title="开启后将采用熄灯绕行策略：速度降低但避开交火盘查、节省灯油"
+              title="开启后采用熄灯绕行策略：速度降低但避开交火盘查、节省灯油"
             >
-              <ShieldAlert size={13} />{evadeWar ? '战区熄灯潜行：开' : '常规行军姿态'}
+              <ShieldAlert size={12} />{evadeWar ? '战区熄灯潜行：开' : '常规行军姿态'}
             </button>
             <span className="wax-pill">已加载大区 {loadedCount}/9</span>
           </div>
         </div>
 
-        <div className="atlas-viewport">
+        <div ref={viewportRef} className="atlas-viewport">
           <canvas
             id="cartography-canvas"
             ref={canvasRef}
@@ -192,26 +209,28 @@ export function CartographyView({
           <div className="atlas-overlay-hud">
             <div className="hud-top">
               <div className="hud-coord-badge">
-                <MapPin size={13} style={{ color: 'var(--crimson)' }} />
+                <MapPin size={12} style={{ color: 'var(--crimson)' }} />
                 <span>
-                  {region.name} · 马车 ({Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]}
+                  {region.name} · 大篷车 ({Math.round(state.world.pos.x)}, {Math.round(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]}
                   {cursorLabel ? ` ｜ ${cursorLabel}` : ''}
                 </span>
               </div>
               <div className="hud-compass" aria-hidden="true">
-                <Navigation2 size={16} style={{ color: 'var(--crimson)', transform: 'rotate(20deg)' }} />
-                <span style={{ fontSize: 10 }}>北 · N</span>
+                <Navigation2 size={14} style={{ color: 'var(--crimson)', transform: 'rotate(20deg)' }} />
+                <span style={{ fontSize: 9.5 }}>北 · N</span>
               </div>
             </div>
 
             <div className="hud-bottom">
               <div className="hud-legend" aria-label="舆图图例">
-                <span><i className="legend-swatch" style={{ background: '#bd9866' }} />干道 (1.4×速)</span>
-                <span><i className="legend-swatch" style={{ background: '#608660' }} />密林 (0.72×速)</span>
-                <span><i className="legend-swatch" style={{ background: '#788466' }} />沼泽 (0.45×速/高损)</span>
-                <span><i className="legend-swatch" style={{ background: '#487e9e' }} />河湖 (需桥梁渡过)</span>
-                <span><i className="legend-swatch" style={{ background: '#a63429' }} />多格城郭</span>
-                <span><i className="legend-swatch" style={{ background: '#dbc59c' }} />未探明迷雾</span>
+                <span><LegendCaravanSvg />残响大篷车</span>
+                <span><LegendCitySvg />城郭</span>
+                <span><LegendVillageSvg />村寨</span>
+                <span><i className="legend-swatch" style={{ background: '#b8915e' }} />干道(1.4×)</span>
+                <span><i className="legend-swatch" style={{ background: '#5c825a' }} />密林</span>
+                <span><i className="legend-swatch" style={{ background: '#748062' }} />沼泽</span>
+                <span><i className="legend-swatch" style={{ background: '#447c9c' }} />河湖</span>
+                <span><i className="legend-swatch" style={{ background: '#d4bd94' }} />迷雾</span>
               </div>
             </div>
           </div>
@@ -221,14 +240,14 @@ export function CartographyView({
       <aside className="atlas-sidebar" aria-label="区域手账与侦查控制">
         <div className="paper-note tone-kraft pinned">
           <div className="card-head">
-            <h3><Trees size={15} />{region.name}</h3>
+            <h3><Trees size={14} />{region.name}</h3>
             <span className={`wax-pill ${region.dangerTier >= 4 ? 'crimson' : 'amber'}`}>危级 {region.dangerTier}/5</span>
           </div>
-          <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10 }}>{region.theme}</p>
+          <p style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginBottom: 6 }}>{region.theme}</p>
           {map && (
             <div className="stat-grid-2">
               <div className="metric-box">
-                <small>小地图尺度 (10×)</small>
+                <small>10× 区域尺度</small>
                 <b>{map.width} × {map.height}</b>
               </div>
               <div className="metric-box">
@@ -242,36 +261,34 @@ export function CartographyView({
         {currentPoi && (
           <div className="paper-note tone-ivory pinned" style={{ borderColor: 'var(--crimson)' }}>
             <div className="card-head">
-              <h3><Building2 size={15} />当前驻扎地</h3>
+              <h3><Building2 size={14} />当前驻扎地</h3>
               <span className="wax-pill crimson">{currentPoi.kind === 'city' ? `城郭 (${currentPoi.footprint.length}格)` : '村寨'}</span>
             </div>
             {currentPoi.scouted && currentPoi.details ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <strong style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{currentPoi.details.name}</strong>
-                <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{currentPoi.details.summary}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  <span className="wax-pill forest">希望值 {currentPoi.details.hope}</span>
-                  {currentPoi.details.marketTraits.map(tr => <span key={tr} className="wax-pill">{tr}</span>)}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <strong style={{ fontFamily: 'var(--font-display)', fontSize: 13.5 }}>{currentPoi.details.name}</strong>
+                  <span className="wax-pill forest">希望 {currentPoi.details.hope}</span>
                 </div>
+                <p style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{currentPoi.details.summary}</p>
                 <button id="open-scouted-poi-btn" type="button" className="btn sm" onClick={() => onOpenScout(currentPoi)}>
-                  <Eye size={13} />查看聚落卷宗与 NPC
+                  <Eye size={12} />查看聚落卷宗与 NPC
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <strong>{currentPoi.placeholderName}</strong>
-                <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>目前仅知坐标与占地轮廓，尚未派遣斥候接洽叙事生成聚落详情。</p>
-                <button id="scout-current-poi-btn" type="button" className="btn primary full" onClick={() => onOpenScout(currentPoi)}>
-                  <Sparkles size={14} />侦查此地（LLM 生成详情）
+                <button id="scout-current-poi-btn" type="button" className="btn sm primary full" onClick={() => onOpenScout(currentPoi)}>
+                  <Sparkles size={13} />侦查此地（LLM 生成详情）
                 </button>
               </div>
             )}
           </div>
         )}
 
-        <div className="paper-note tone-ivory">
+        <div className="paper-note tone-ivory atlas-sidebar-flex-note">
           <div className="card-head">
-            <h3><Footprints size={15} />视野内据点</h3>
+            <h3><Footprints size={14} />已探明据点</h3>
             <small>{visiblePois.length} 处</small>
           </div>
           <div className="poi-list">
@@ -281,7 +298,7 @@ export function CartographyView({
                   <b>{poi.scouted && poi.details ? poi.details.name : poi.placeholderName}</b>
                   <small>{poi.kind === 'city' ? `多格城市 (${poi.footprint.length}格)` : '荒野村寨'} · ({poi.x}, {poi.y})</small>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     id={`assist-route-${poi.id}`}
                     type="button"
@@ -289,7 +306,7 @@ export function CartographyView({
                     title="绘制参考墨线前往此处"
                     onClick={() => onAssistSketchTo(poi.x, poi.y)}
                   >
-                    <Route size={12} />引线
+                    <Route size={11} />引线
                   </button>
                   <button
                     id={`scout-list-${poi.id}`}
@@ -302,22 +319,22 @@ export function CartographyView({
                 </div>
               </div>
             )) : (
-              <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>当前视野内尚无已知聚落，在羊皮纸上向远方划线探索吧。</p>
+              <p style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>当前视野内尚无已知聚落，在羊皮纸上向远方划线探索吧。</p>
             )}
           </div>
         </div>
 
-        <div className="paper-note tone-sage">
+        <div className="paper-note tone-sage" style={{ maxHeight: 148, display: 'flex', flexDirection: 'column' }}>
           <div className="card-head">
-            <h3><Compass size={15} />跨区边境关口</h3>
-            <small>靠近关口 4 格内可出境</small>
+            <h3><Compass size={14} />相邻省界关口</h3>
+            <small>4 格内出境</small>
           </div>
           <div className="poi-list">
             {reachableGates.map(gate => (
-              <div key={gate.direction} className="poi-row">
+              <div key={gate.targetRegionId} className="poi-row">
                 <div className="poi-row-info">
                   <b>通往 {state.world.regions[gate.targetRegionId].name}</b>
-                  <small>{gate.seen ? `坐标 (${gate.x}, ${gate.y}) · 距 ${Math.round(gate.dist)} 里` : '仍在迷雾深处'}</small>
+                  <small>{gate.seen ? `(${gate.x}, ${gate.y}) · 距 ${Math.round(gate.dist)} 里` : '仍在迷雾深处'}</small>
                 </div>
                 {gate.dist <= 4 ? (
                   <button
@@ -326,7 +343,7 @@ export function CartographyView({
                     className="btn sm primary"
                     onClick={() => onCrossBorder(gate.targetRegionId)}
                   >
-                    出境懒加载
+                    出境展开
                   </button>
                 ) : gate.seen ? (
                   <button
@@ -335,7 +352,7 @@ export function CartographyView({
                     className="btn sm"
                     onClick={() => onAssistSketchTo(gate.x, gate.y)}
                   >
-                    引线前往
+                    引线
                   </button>
                 ) : (
                   <span className="wax-pill">未探明</span>

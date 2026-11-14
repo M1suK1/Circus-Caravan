@@ -1,34 +1,43 @@
 /**
  * 羊皮纸三级地图渲染器（128×128 世界全图 / 10× 区域全图 / 跟随马车局部图）。
  *
- * 使用离屏 ImageData 像素缓冲区渲染，单帧绘制耗时 < 5ms，避免十余万 DOM 节点卡顿。
+ * 使用离屏 ImageData 像素缓冲区渲染地貌底图，再叠加可视范围内的城郭、村寨、关口与大篷车矢量图标。
  */
 import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
 import { regionTerrainArray } from '../../domain/regionGen.ts';
 import { CARAVAN_VISION_RADIUS, exploredMaskArray } from '../../domain/routeDraw.ts';
 import { TERRAIN_ORDER, worldRegionArray, worldTerrainArray } from '../../domain/worldGen.ts';
 import type { CircusState, MapZoomMode, RegionMap, RouteEvaluation, TerrainType } from '../../types.ts';
+import {
+  collectVisibleGateMarkers,
+  collectVisibleSettlementMarkers,
+  drawCaravanIcon,
+  drawCityIcon,
+  drawGateIcon,
+  drawVillageIcon,
+  isSettlementRevealed,
+} from './mapIcons.ts';
 
 const TERRAIN_RGB: Record<TerrainType, [number, number, number]> = {
-  outside: [219, 197, 156],
-  ocean: [70, 108, 134],
-  coast: [162, 179, 168],
-  lake: [62, 114, 146],
-  river: [72, 126, 158],
+  outside: [214, 190, 148],
+  ocean: [64, 102, 128],
+  coast: [176, 184, 158],
+  lake: [58, 112, 144],
+  river: [68, 124, 156],
   bridge: [164, 114, 62],
   border_gate: [184, 115, 36],
-  wasteland: [224, 204, 166],
-  road: [189, 152, 102],
-  forest: [96, 134, 96],
-  swamp: [120, 132, 102],
-  mountain: [142, 118, 92],
-  ruin: [168, 136, 114],
-  warzone: [168, 76, 66],
-  city: [166, 52, 41],
-  village: [194, 114, 58],
+  wasteland: [222, 200, 160],
+  road: [184, 145, 94],
+  forest: [92, 130, 90],
+  swamp: [116, 128, 98],
+  mountain: [136, 110, 84],
+  ruin: [164, 132, 108],
+  warzone: [168, 74, 62],
+  city: [174, 68, 52],
+  village: [194, 118, 62],
 };
 
-const FOG_RGB: [number, number, number] = [216, 196, 158];
+const FOG_RGB: [number, number, number] = [212, 189, 148];
 
 export interface ViewportTransform {
   viewX: number;
@@ -74,9 +83,8 @@ export function computeViewport(
   if (zoom === 'region') {
     return { viewX: 0, viewY: 0, viewW: regionMap.width, viewH: regionMap.height, canvasW, canvasH };
   }
-  // follow 模式：围绕马车保持约 48×30 格局部高精视野
   const aspect = canvasW / Math.max(1, canvasH);
-  const viewH = 44;
+  const viewH = 42;
   const viewW = Math.round(viewH * aspect);
   const vx = Math.max(0, Math.min(regionMap.width - viewW, state.world.pos.x - viewW / 2));
   const vy = Math.max(0, Math.min(regionMap.height - viewH, state.world.pos.y - viewH / 2));
@@ -135,27 +143,67 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
         const ter = TERRAIN_ORDER[terArr[idx]!] ?? 'ocean';
         const rgb = TERRAIN_RGB[ter];
         const rIdx = regArr[idx]!;
-        let isBorder = false;
-        if (rIdx < 9 && x + 1 < world.width && y + 1 < world.height) {
-          if (regArr[idx + 1] !== rIdx || regArr[idx + world.width] !== rIdx) isBorder = true;
+        let isProvBorder = false;
+        let isShoreline = false;
+        if (x + 1 < world.width && y + 1 < world.height && x > 0 && y > 0) {
+          const rightReg = regArr[idx + 1]!;
+          const downReg = regArr[idx + world.width]!;
+          if (rIdx < 9 && ((rightReg < 9 && rightReg !== rIdx) || (downReg < 9 && downReg !== rIdx))) {
+            isProvBorder = true;
+          }
+          if (ter !== 'ocean') {
+            if (
+              TERRAIN_ORDER[terArr[idx + 1]!] === 'ocean' ||
+              TERRAIN_ORDER[terArr[idx - 1]!] === 'ocean' ||
+              TERRAIN_ORDER[terArr[idx + world.width]!] === 'ocean' ||
+              TERRAIN_ORDER[terArr[idx - world.width]!] === 'ocean'
+            ) {
+              isShoreline = true;
+            }
+          }
         }
         const p = idx * 4;
-        data[p] = isBorder ? 112 : rgb[0];
-        data[p + 1] = isBorder ? 80 : rgb[1];
-        data[p + 2] = isBorder ? 48 : rgb[2];
+        if (isShoreline) {
+          data[p] = 88;
+          data[p + 1] = 62;
+          data[p + 2] = 38;
+        } else if (isProvBorder) {
+          data[p] = 122;
+          data[p + 1] = 74;
+          data[p + 2] = 44;
+        } else {
+          data[p] = rgb[0];
+          data[p + 1] = rgb[1];
+          data[p + 2] = rgb[2];
+        }
         data[p + 3] = 255;
       }
     }
   });
 
-  ctx.fillStyle = '#3f6985';
+  ctx.fillStyle = '#3c6480';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
   const topLeft = mapToCanvasPx(0, 0, vp);
   const botRight = mapToCanvasPx(world.width, world.height, vp);
   ctx.drawImage(off, topLeft.px, topLeft.py, botRight.px - topLeft.px, botRight.py - topLeft.py);
 
-  // 标注 9 大区域手写风名称
+  // 已展开区域内的探明城郭与村寨微缩舆图图标
+  for (const rId of REGION_IDS) {
+    const rMap = state.world.regions[rId].map;
+    if (!rMap) continue;
+    const refPos = rId === state.world.currentRegionId ? state.world.pos : { x: -999, y: -999 };
+    for (const poi of Object.values(rMap.pois)) {
+      if (!isSettlementRevealed(rMap, poi, refPos)) continue;
+      const wx = (rMap.worldOffsetX + poi.x) / 10;
+      const wy = (rMap.worldOffsetY + poi.y) / 10;
+      const pt = mapToCanvasPx(wx, wy, vp);
+      if (poi.kind === 'city') drawCityIcon(ctx, pt.px, pt.py, 14, poi.scouted);
+      else drawVillageIcon(ctx, pt.px, pt.py, 11, poi.scouted);
+    }
+  }
+
+  // 标注 9 大自然疆域手写风名称
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (const id of REGION_IDS) {
@@ -164,27 +212,20 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
     const active = id === state.world.currentRegionId;
     const loaded = Boolean(state.world.regions[id].map);
     ctx.font = `${active ? '700 13px' : '600 11px'} "Noto Serif SC", serif`;
-    ctx.fillStyle = 'rgba(250, 242, 224, 0.85)';
-    ctx.strokeStyle = 'rgba(250, 242, 224, 0.9)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(250, 242, 224, 0.92)';
+    ctx.lineWidth = 3.2;
     ctx.strokeText(REGION_CATALOG[id].name, pt.px, pt.py);
-    ctx.fillStyle = active ? '#a63429' : loaded ? '#2a1f18' : '#6d5844';
+    ctx.fillStyle = active ? '#a63429' : loaded ? '#2a1f18' : '#5e4b39';
     ctx.fillText(REGION_CATALOG[id].name, pt.px, pt.py);
   }
 
-  // 绘制当前大篷车在世界地图上的坐标图钉
+  // 绘制当前残响大篷车在世界地图上的专属篷车图标
   const curMap = state.world.regions[state.world.currentRegionId].map;
   if (curMap) {
     const wx = (curMap.worldOffsetX + state.world.pos.x) / 10;
     const wy = (curMap.worldOffsetY + state.world.pos.y) / 10;
     const pin = mapToCanvasPx(wx, wy, vp);
-    ctx.beginPath();
-    ctx.arc(pin.px, pin.py, 7, 0, Math.PI * 2);
-    ctx.fillStyle = '#a63429';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#faf2e0';
-    ctx.stroke();
+    drawCaravanIcon(ctx, pin.px, pin.py, 24);
   }
 }
 
@@ -212,7 +253,6 @@ function drawRegionCanvas(
         const p = idx * 4;
 
         if (!explored && !liveSeen && ter !== 'outside') {
-          // 羊皮纸迷雾遮罩（仅加细微格纹）
           const shade = ((x + y) & 1) === 0 ? 4 : -4;
           data[p] = FOG_RGB[0] + shade;
           data[p + 1] = FOG_RGB[1] + shade;
@@ -220,59 +260,30 @@ function drawRegionCanvas(
           data[p + 3] = 255;
         } else {
           const rgb = TERRAIN_RGB[ter];
-          // 曾到过但不在当前视野内的地貌略微做旧柔化，与实时视野形成高级层次感
           const dim = !liveSeen && ter !== 'outside' ? 0.88 : 1;
-          data[p] = Math.round(rgb[0] * dim + (1 - dim) * 230);
-          data[p + 1] = Math.round(rgb[1] * dim + (1 - dim) * 212);
-          data[p + 2] = Math.round(rgb[2] * dim + (1 - dim) * 180);
+          data[p] = Math.round(rgb[0] * dim + (1 - dim) * 228);
+          data[p + 1] = Math.round(rgb[1] * dim + (1 - dim) * 208);
+          data[p + 2] = Math.round(rgb[2] * dim + (1 - dim) * 174);
           data[p + 3] = 255;
         }
       }
     }
   });
 
-  ctx.fillStyle = '#d3bc94';
+  ctx.fillStyle = '#cfB588';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
   const p0 = mapToCanvasPx(0, 0, vp);
   const p1 = mapToCanvasPx(map.width, map.height, vp);
   ctx.drawImage(off, p0.px, p0.py, p1.px - p0.px, p1.py - p0.py);
 
-  // 已揭露的多格城市与村庄名牌
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  for (const poi of Object.values(map.pois)) {
-    const idx = poi.y * map.width + poi.x;
-    const seen = Boolean((mask[idx >> 3]! >> (idx & 7)) & 1)
-      || (poi.x - cx) * (poi.x - cx) + (poi.y - cy) * (poi.y - cy) <= r2;
-    if (!seen) continue;
-    const pos = mapToCanvasPx(poi.x, poi.y - 1.5, vp);
-    const label = poi.scouted && poi.details ? poi.details.name : poi.placeholderName;
-    ctx.font = poi.kind === 'city' ? '700 12px "Noto Serif SC", serif' : '500 11px "Noto Sans SC", sans-serif';
-    ctx.strokeStyle = 'rgba(250, 242, 224, 0.92)';
-    ctx.lineWidth = 3;
-    ctx.strokeText(label, pos.px, pos.py);
-    ctx.fillStyle = poi.scouted ? '#2a1f18' : '#7a6450';
-    ctx.fillText(label, pos.px, pos.py);
-  }
+  const pxPerTile = Math.min(vp.canvasW / vp.viewW, vp.canvasH / vp.viewH);
+  const citySize = Math.max(20, Math.min(32, pxPerTile * 3.4));
+  const villageSize = Math.max(16, Math.min(25, pxPerTile * 2.7));
+  const gateSize = Math.max(15, Math.min(22, pxPerTile * 2.4));
+  const caravanSize = Math.max(24, Math.min(36, pxPerTile * 3.8));
 
-  // 边界出境口标牌（在视野或曾探明时显现）
-  for (const gate of map.gates) {
-    const idx = gate.y * map.width + gate.x;
-    const seen = Boolean((mask[idx >> 3]! >> (idx & 7)) & 1)
-      || (gate.x - cx) * (gate.x - cx) + (gate.y - cy) * (gate.y - cy) <= r2;
-    if (!seen) continue;
-    const pos = mapToCanvasPx(gate.x, gate.y, vp);
-    ctx.beginPath();
-    ctx.arc(pos.px, pos.py, 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#b87324';
-    ctx.fill();
-    ctx.font = '600 10px "Noto Sans SC", sans-serif';
-    ctx.fillStyle = '#564234';
-    ctx.fillText(`→ ${state.world.regions[gate.targetRegionId].name}`, pos.px, pos.py - 8);
-  }
-
-  // 手动划线路径预览（有效路径墨色虚线 + 截断阻碍红线）
+  // 手动划线路径预览（绘制在图标底层，避免墨线压脏图标）
   if (routeDraft && routeDraft.points.length >= 2) {
     if (routeDraft.validPoints.length >= 2) {
       ctx.beginPath();
@@ -304,25 +315,56 @@ function drawRegionCanvas(
     }
   }
 
-  // 马车实时位置与暖灯视野光圈
+  // 显示范围内且已探明的边界出境关口图标与铭牌
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (const gate of collectVisibleGateMarkers(map, state.world.pos, vp)) {
+    const pos = mapToCanvasPx(gate.x + 0.5, gate.y + 0.5, vp);
+    drawGateIcon(ctx, pos.px, pos.py, gateSize);
+    ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
+    ctx.strokeStyle = 'rgba(250, 242, 224, 0.92)';
+    ctx.lineWidth = 2.8;
+    const txt = `→ ${state.world.regions[gate.targetRegionId].name}`;
+    ctx.strokeText(txt, pos.px, pos.py - gateSize * 0.56);
+    ctx.fillStyle = '#564234';
+    ctx.fillText(txt, pos.px, pos.py - gateSize * 0.56);
+  }
+
+  // 显示范围内且已探明的多格城市与荒原村寨专属图标 + 描边名牌
+  const visiblePois = collectVisibleSettlementMarkers(map, state.world.pos, vp, state.world.currentPoiId);
+  let parkedNearPoi = false;
+  for (const marker of visiblePois) {
+    if (Math.hypot(marker.x - cx, marker.y - cy) < 2.2) parkedNearPoi = true;
+    const pos = mapToCanvasPx(marker.x + 0.5, marker.y + 0.5, vp);
+    const sz = marker.kind === 'city' ? citySize : villageSize;
+    if (marker.kind === 'city') {
+      drawCityIcon(ctx, pos.px, pos.py, sz, marker.scouted);
+    } else {
+      drawVillageIcon(ctx, pos.px, pos.py, sz, marker.scouted);
+    }
+    ctx.font = marker.kind === 'city' ? '700 12px "Noto Serif SC", serif' : '600 11px "Noto Sans SC", sans-serif';
+    ctx.strokeStyle = 'rgba(251, 243, 226, 0.95)';
+    ctx.lineWidth = 3.2;
+    ctx.strokeText(marker.label, pos.px, pos.py - sz * 0.58);
+    ctx.fillStyle = marker.scouted ? '#261910' : '#6f5843';
+    ctx.fillText(marker.label, pos.px, pos.py - sz * 0.58);
+  }
+
+  // 马车暖灯视野光圈与残响大篷车专属图标（驻扎聚落时轻微侧移并立，互不遮挡）
   const cPx = mapToCanvasPx(cx, cy, vp);
   const edgePx = mapToCanvasPx(cx + CARAVAN_VISION_RADIUS, cy, vp);
-  const visPx = Math.max(12, Math.abs(edgePx.px - cPx.px));
+  const visPx = Math.max(14, Math.abs(edgePx.px - cPx.px));
   ctx.beginPath();
   ctx.arc(cPx.px, cPx.py, visPx, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(184, 115, 36, 0.45)';
-  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = 'rgba(184, 115, 36, 0.48)';
+  ctx.lineWidth = 1.3;
   ctx.setLineDash([5, 5]);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.beginPath();
-  ctx.arc(cPx.px, cPx.py, 7, 0, Math.PI * 2);
-  ctx.fillStyle = '#a63429';
-  ctx.fill();
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = '#faf2e0';
-  ctx.stroke();
+  const wagonOffsetX = parkedNearPoi ? caravanSize * 0.58 : 0;
+  const wagonOffsetY = parkedNearPoi ? caravanSize * 0.20 : 0;
+  drawCaravanIcon(ctx, cPx.px + wagonOffsetX, cPx.py + wagonOffsetY, caravanSize);
 }
 
 export function renderCartographyCanvas(

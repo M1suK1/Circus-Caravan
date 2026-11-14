@@ -1,5 +1,6 @@
 import { REGION_IDS } from '../content/regions.ts';
 import { computeCaravanCapacity } from '../domain/caravanMath.ts';
+import { computeWorldNeighbors } from '../domain/worldGen.ts';
 import type { CircusState } from '../types.ts';
 import { createInitialState } from './state.ts';
 
@@ -27,6 +28,12 @@ export function normalizeState(raw: string | null): CircusState | null {
   const currentRegion = candidate.world.regions?.[candidate.world.currentRegionId];
   if (!currentRegion?.map) return null;
 
+  const liveNeighbors = computeWorldNeighbors(candidate.world.worldMap);
+  for (const rId of REGION_IDS) {
+    if (candidate.world.regions?.[rId]) {
+      candidate.world.regions[rId].neighbors = liveNeighbors[rId].map(n => ({ ...n }));
+    }
+  }
   const cap = computeCaravanCapacity(candidate.caravan.wagons ?? []);
   candidate.caravan.maxWeight = cap.maxWeight;
   candidate.caravan.maxSeats = cap.maxSeats;

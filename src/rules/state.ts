@@ -7,7 +7,7 @@ import {
   surroundingTerrainsOf,
 } from '../domain/regionGen.ts';
 import { CARAVAN_VISION_RADIUS, revealCircleInMask } from '../domain/routeDraw.ts';
-import { generateWorldMap, pickRandomSpawnRegion } from '../domain/worldGen.ts';
+import { computeWorldNeighbors, generateWorldMap, pickRandomSpawnRegion } from '../domain/worldGen.ts';
 import type { CircusState, Performer, RecruitCandidate, RegionId, Wagon } from '../types.ts';
 
 function initialWagons(): Wagon[] {
@@ -121,6 +121,10 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
   const worldMap = generateWorldMap(seed);
   const spawnRegionId = pickRandomSpawnRegion(seed, options.spawnRegionId);
   const regions = createInitialMacroRegions();
+  const worldNeighbors = computeWorldNeighbors(worldMap);
+  for (const rId of Object.keys(regions) as RegionId[]) {
+    regions[rId].neighbors = worldNeighbors[rId].map(n => ({ ...n }));
+  }
 
   // 严格懒加载：开局仅生成当前出生大区 10× 小地图，其余 8 区 map 为 undefined
   const startMap = generateRegionMap(worldMap, spawnRegionId, seed);

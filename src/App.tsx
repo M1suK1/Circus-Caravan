@@ -10,6 +10,7 @@ import { ScoutDialog } from './components/Modals/ScoutDialog.tsx';
 import { RecordsView } from './components/RecordsView.tsx';
 import { HelmBar, PageHeading, SideRail, Topbar } from './components/Shell.tsx';
 import { SuppliesView } from './components/SuppliesView.tsx';
+import { VellumDogEar } from './components/VellumDogEar.tsx';
 import { evaluateRouteStroke } from './domain/routeDraw.ts';
 import { hydrateCircusAssets, slimCircusAssets } from './engine/portraitAssets.ts';
 import { kvGet, kvSet } from './engine/store.ts';
@@ -139,6 +140,7 @@ export function App() {
 
       <main id="main-stage" className="app-main">
         <div id="main-stage-sheet" className="vellum-sheet">
+          <VellumDogEar id="main-vellum-dogear" />
           <PageHeading
             page={page}
             right={

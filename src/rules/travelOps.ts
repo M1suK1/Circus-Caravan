@@ -108,13 +108,16 @@ export function applyCrossBorder(state: CircusState, action: Extract<GameAction,
     return { state, ok: false, message: '请先划线行进至边境关口附近（4 格内），再跨越区域边界。' };
   }
 
+  const originRegionId = next.world.currentRegionId;
   const targetRegion = next.world.regions[gate.targetRegionId];
   if (!targetRegion.map) {
     targetRegion.map = generateRegionMap(next.world.worldMap, targetRegion.id, next.world.seed);
   }
   const destMap = targetRegion.map;
   const entryDir = OPPOSITE_DIR[gate.direction];
-  const entryGate = destMap.gates.find(g => g.direction === entryDir) ?? destMap.gates[0];
+  const entryGate = destMap.gates.find(g => g.targetRegionId === originRegionId)
+    ?? destMap.gates.find(g => g.direction === entryDir)
+    ?? destMap.gates[0];
   const ex = entryGate?.x ?? Math.floor(destMap.width / 2);
   const ey = entryGate?.y ?? Math.floor(destMap.height / 2);
 

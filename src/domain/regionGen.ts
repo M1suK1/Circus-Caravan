@@ -3,6 +3,7 @@
  */
 import { REGION_CATALOG, REGION_IDS, type RegionProfile } from '../content/regions.ts';
 import {
+  computeWorldNeighbors,
   createRng,
   decodeBytes,
   encodeBytes,
@@ -134,15 +135,19 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
     }
   }
 
-  // 4. 在相邻大区接触边缘开设跨区出境关口（border_gate）
+  // 4. 在真实接壤的大区接触边缘（或最近海岸渡口）开设跨区出境关口（border_gate）
   const gates: RegionGate[] = [];
-  for (const neighbor of profile.neighbors) {
+  const liveNeighbors = computeWorldNeighbors(world)[regionId] ?? profile.neighbors;
+  for (const neighbor of liveNeighbors) {
     const targetIdx = REGION_IDS.indexOf(neighbor.targetRegionId);
+    const targetBounds = world.regionBounds[neighbor.targetRegionId];
+    const targetLx = (targetBounds.centerX - bounds.minX) * SCALE;
+    const targetLy = (targetBounds.centerY - bounds.minY) * SCALE;
     const candidates: { x: number; y: number }[] = [];
     for (let ly = 2; ly < height - 2; ly += 1) {
       for (let lx = 2; lx < width - 2; lx += 1) {
         const cur = TERRAIN_ORDER[terrain[ly * width + lx]!]!;
-        if (!isPassableBase(cur)) continue;
+        if (!isPassableBase(cur) && cur !== 'coast') continue;
         const wx = bounds.minX + Math.floor(lx / SCALE);
         const wy = bounds.minY + Math.floor(ly / SCALE);
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -157,11 +162,24 @@ export function generateRegionMap(world: WorldMapData, regionId: RegionId, world
         }
       }
     }
-    const chosen = candidates.length
-      ? candidates[Math.floor(candidates.length * 0.5)]!
-      : landCells[Math.floor(rng() * Math.max(1, landCells.length))] ?? { x: Math.floor(width / 2), y: Math.floor(height / 2) };
-    terrain[chosen.y * width + chosen.x] = TERRAIN_TO_CODE.border_gate;
-    gates.push({ direction: neighbor.direction as Direction, targetRegionId: neighbor.targetRegionId, x: chosen.x, y: chosen.y });
+    let chosen: { x: number; y: number } | undefined = candidates.length
+      ? candidates[Math.floor(candidates.length * 0.5)]
+      : undefined;
+    if (!chosen && landCells.length) {
+      let bestD = Infinity;
+      for (let k = 0; k < landCells.length; k += 3) {
+        const c = landCells[k]!;
+        if (gates.some(g => Math.hypot(g.x - c.x, g.y - c.y) < 8)) continue;
+        const d = Math.hypot(c.x - targetLx, c.y - targetLy);
+        if (d < bestD) {
+          bestD = d;
+          chosen = c;
+        }
+      }
+    }
+    const finalGate = chosen ?? landCells[Math.floor(rng() * Math.max(1, landCells.length))] ?? { x: Math.floor(width / 2), y: Math.floor(height / 2) };
+    terrain[finalGate.y * width + finalGate.x] = TERRAIN_TO_CODE.border_gate;
+    gates.push({ direction: neighbor.direction as Direction, targetRegionId: neighbor.targetRegionId, x: finalGate.x, y: finalGate.y });
   }
 
   // 5. 生成 1–3 座多格占地城市 + 2–4 座村庄（只定位置与占地，details 为 undefined）

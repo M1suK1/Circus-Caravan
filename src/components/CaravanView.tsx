@@ -59,17 +59,17 @@ export function CaravanView({
   };
 
   return (
-    <div className="two-col-grid">
+    <div className="two-col-grid view-fill">
       <section className="paper-note tone-ivory pinned" aria-label="五节大篷车车厢配置">
         <div className="card-head">
-          <h2><CaravanIcon size={16} />大篷车车厢编成</h2>
+          <h2><CaravanIcon size={15} />大篷车车厢编成</h2>
           <small>载重 {usedWeight(state)}/{state.caravan.maxWeight} · 席位 {usedSeats(state)}/{state.caravan.maxSeats} · 兽笼 {usedCageSlots(state)}/{state.caravan.maxCageSlots}</small>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {state.caravan.wagons.map(wagon => (
-            <article key={wagon.id} className="poi-row" style={{ padding: '11px 12px' }}>
+            <article key={wagon.id} className="poi-row">
               <div className="poi-row-info">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <b>{wagon.name}</b>
                   <span className="wax-pill amber">Lv.{wagon.level}</span>
                   <span className={`wax-pill ${wagon.durability < 50 ? 'crimson' : 'forest'}`}>
@@ -81,10 +81,10 @@ export function CaravanView({
                   {wagon.kind === 'cage' && '容纳野外捕获的奇幻生物（二阶巨兽占 2 格）'}
                   {wagon.kind === 'cargo' && '提供货运契约载重与行军补给储藏空间'}
                   {wagon.kind === 'passenger' && '决定演职员与付费搭车旅客的总席位上限'}
-                  {wagon.kind === 'workshop' && '用于修补车轮耐久、制作捕兽网与演出道具'}
+                  {wagon.kind === 'workshop' && '修补车轮耐久、制作捕兽网与演出道具'}
                 </small>
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                 <button
                   id={`wagon-repair-${wagon.id}`}
                   type="button"
@@ -92,7 +92,7 @@ export function CaravanView({
                   disabled={wagon.durability >= wagon.maxDurability}
                   onClick={() => onRepairWagon(wagon.id)}
                 >
-                  <Wrench size={12} />修缮 ({wagonRepairCost(wagon)})
+                  <Wrench size={11} />修缮 ({wagonRepairCost(wagon)})
                 </button>
                 <button
                   id={`wagon-upgrade-${wagon.id}`}
@@ -101,18 +101,18 @@ export function CaravanView({
                   disabled={wagon.level >= 5}
                   onClick={() => onUpgradeWagon(wagon.id)}
                 >
-                  <ArrowUpCircle size={12} />扩建 ({wagonUpgradeCost(wagon)})
+                  <ArrowUpCircle size={11} />扩建 ({wagonUpgradeCost(wagon)})
                 </button>
               </div>
             </article>
           ))}
         </div>
 
-        <div className="card-head" style={{ marginTop: 18 }}>
-          <h3><UserPlus size={15} />酒馆流民与流浪艺人招募</h3>
+        <div className="card-head" style={{ marginTop: 10 }}>
+          <h3><UserPlus size={14} />酒馆流民与流浪艺人招募</h3>
           <small>待签约 {state.recruitPool.length} 名</small>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {state.recruitPool.length ? state.recruitPool.map(cand => (
             <article key={cand.id} className="poi-row">
               <div className="poi-row-info">
@@ -129,18 +129,18 @@ export function CaravanView({
                 className="btn sm primary"
                 onClick={() => onHireCandidate(cand.id)}
               >
-                <Plus size={12} />签约 ({cand.hireCost} 金)
+                <Plus size={11} />签约 ({cand.hireCost} 金)
               </button>
             </article>
           )) : (
-            <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>当前城镇酒馆暂未打听到新的流浪艺人。</p>
+            <p style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>当前城镇酒馆暂未打听到新的流浪艺人。</p>
           )}
         </div>
       </section>
 
       <section className="paper-note tone-kraft" aria-label="马戏团演员阵容与角色卡双栖台">
         <div className="card-head">
-          <h2><Users size={16} />剧团花名册</h2>
+          <h2><Users size={15} />剧团花名册</h2>
           <small>点击成员开启「档案 · 篝火夜谈 (LLM)」</small>
         </div>
         <div className="cards-grid">
@@ -161,26 +161,26 @@ export function CaravanView({
                   <span className="wax-pill amber">Lv.{perf.level}</span>
                 </div>
                 <small>{CIRCUS_ROLE_LABELS[perf.role]} · {perf.title}</small>
-                <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: 11, color: 'var(--ink-soft)' }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 2, fontSize: 10.5, color: 'var(--ink-soft)' }}>
                   <span>士气 {perf.morale}</span>
                   <span>信赖 {perf.bond}</span>
                   <span>日薪 {perf.wagePerDay}</span>
                 </div>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--crimson)', marginTop: 2 }}>
-                  <MessageSquare size={11} />进入夜谈 / 换装舞台
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--crimson)', marginTop: 1 }}>
+                  <MessageSquare size={10} />进入夜谈 / 换装舞台
                 </span>
               </div>
             </button>
           ))}
         </div>
 
-        <div className="card-head" style={{ marginTop: 18 }}>
-          <h3><Sparkles size={15} />角色卡双栖指派台（演员 / 驻地 NPC）</h3>
-          <small>兼容夜糖与大篷车格式 (.json)</small>
+        <div className="card-head" style={{ marginTop: 12 }}>
+          <h3><Sparkles size={14} />角色卡双栖指派台（演员 / 驻地 NPC）</h3>
+          <small>兼容通用角色卡与大篷车格式 (.json)</small>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label htmlFor="caravan-card-upload" className="btn" style={{ width: 'fit-content' }}>
-            <Upload size={14} />从本地读取角色卡文件
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label htmlFor="caravan-card-upload" className="btn sm" style={{ width: 'fit-content' }}>
+            <Upload size={12} />从本地读取角色卡文件
             <input
               id="caravan-card-upload"
               type="file"
@@ -191,21 +191,21 @@ export function CaravanView({
           </label>
 
           {stagedCard ? (
-            <div className="poi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div className="poi-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 7 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>{stagedCard.girl.name}</strong>
-                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink-muted)' }}>{stagedCard.girl.title} · {stagedCard.girl.element}</span>
+                  <strong style={{ fontFamily: 'var(--font-display)', fontSize: 13 }}>{stagedCard.girl.name}</strong>
+                  <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--ink-muted)' }}>{stagedCard.girl.title} · {stagedCard.girl.element}</span>
                 </div>
                 <span className="wax-pill forest">卡面已验证</span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                <label htmlFor="card-role-select" style={{ fontSize: 12 }}>剧团职业：</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                <label htmlFor="card-role-select" style={{ fontSize: 11.5 }}>剧团职业：</label>
                 <select
                   id="card-role-select"
                   value={pickedRole}
                   onChange={e => setPickedRole(e.target.value as CircusRole)}
-                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--umber-strong)', background: 'var(--vellum-bright)' }}
+                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--umber-strong)', background: 'var(--vellum-bright)', fontSize: 11.5 }}
                 >
                   {(Object.keys(CIRCUS_ROLE_LABELS) as CircusRole[]).map(r => (
                     <option key={r} value={r}>{CIRCUS_ROLE_LABELS[r]}</option>
@@ -220,13 +220,13 @@ export function CaravanView({
                   编入马戏团演员
                 </button>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', borderTop: '1px solid var(--umber-line)', paddingTop: 8 }}>
-                <label htmlFor="card-npc-poi-select" style={{ fontSize: 12 }}>或驻扎城镇：</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', borderTop: '1px solid var(--umber-line)', paddingTop: 6 }}>
+                <label htmlFor="card-npc-poi-select" style={{ fontSize: 11.5 }}>或驻扎城镇：</label>
                 <select
                   id="card-npc-poi-select"
                   value={activePoiId}
                   onChange={e => setNpcTargetPoi(e.target.value)}
-                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--umber-strong)', background: 'var(--vellum-bright)' }}
+                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--umber-strong)', background: 'var(--vellum-bright)', fontSize: 11.5 }}
                 >
                   {scoutedPois.map(p => (
                     <option key={p.id} value={p.id}>{p.details?.name ?? p.placeholderName}</option>
@@ -244,7 +244,7 @@ export function CaravanView({
               </div>
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+            <p style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
               导入角色卡后，既能将其编为杂技/驯兽/幻术/斥候等演员上台演出，也能派往已侦查的城市或村庄担任镇长、商人或搭车旅客。
             </p>
           )}
