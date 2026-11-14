@@ -603,6 +603,23 @@ function drawRegionCanvas(
   ctx.stroke();
   ctx.setLineDash([]);
 
+  if (state.timeSlot === 'dusk' || state.timeSlot === 'night') {
+    const isNight = state.timeSlot === 'night';
+    const lantern = ctx.createRadialGradient(
+      cPx.px,
+      cPx.py,
+      visPx * 0.2,
+      cPx.px,
+      cPx.py,
+      Math.max(canvas.width, canvas.height) * 0.85,
+    );
+    lantern.addColorStop(0, 'rgba(255, 206, 118, 0.14)');
+    lantern.addColorStop(0.28, isNight ? 'rgba(26, 30, 56, 0.24)' : 'rgba(98, 56, 32, 0.12)');
+    lantern.addColorStop(1, isNight ? 'rgba(14, 18, 38, 0.44)' : 'rgba(66, 36, 20, 0.24)');
+    ctx.fillStyle = lantern;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
   drawCaravanIcon(ctx, cPx.px, cPx.py, caravanSize);
 }
 

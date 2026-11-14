@@ -7,6 +7,7 @@ export function applyTavernRest(
   state: CircusState,
   action: Extract<GameAction, { type: 'tavernRest' }>,
 ): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊。' };
   const next = clone(state);
   const region = next.world.regions[next.world.currentRegionId];
   const poi = region.map?.pois[action.poiId];
@@ -33,6 +34,7 @@ export function applyStagePerform(
   state: CircusState,
   action: Extract<GameAction, { type: 'stagePerform' }>,
 ): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊。' };
   const next = clone(state);
   const region = next.world.regions[next.world.currentRegionId];
   const poi = region.map?.pois[action.poiId];
@@ -79,6 +81,7 @@ export function applySettlementBuySupply(
   state: CircusState,
   action: Extract<GameAction, { type: 'settlementBuySupply' }>,
 ): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊。' };
   const next = clone(state);
   if (next.gold < action.cost) {
     return { state, ok: false, message: `金币不足，购买需要 ${action.cost} 金。` };
@@ -95,6 +98,7 @@ export function applySettlementAidOrPass(
   state: CircusState,
   action: Extract<GameAction, { type: 'settlementAidOrPass' }>,
 ): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊。' };
   const next = clone(state);
   const region = next.world.regions[next.world.currentRegionId];
   const poi = region.map?.pois[action.poiId];

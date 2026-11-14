@@ -53,6 +53,7 @@ export function normalizeState(raw: string | null): CircusState | null {
   candidate.passengerOrders ??= [];
   candidate.recentShows ??= [];
   candidate.rumors ??= [];
+  candidate.lastLedger ??= undefined;
   candidate.logs ??= [];
   return candidate as CircusState;
 }

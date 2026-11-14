@@ -35,6 +35,10 @@ export function applyRepairWagon(state: CircusState, action: Extract<GameAction,
 
   next.gold -= cost;
   wagon.durability = wagon.maxDurability;
+  const cap = computeCaravanCapacity(next.caravan.wagons);
+  next.caravan.maxWeight = cap.maxWeight;
+  next.caravan.maxSeats = cap.maxSeats;
+  next.caravan.maxCageSlots = cap.maxCageSlots;
   pushLog(next, 'crew', `修缮了 ${wagon.name}，耐久恢复至 ${wagon.durability}。`);
   return { state: next, ok: true, message: `${wagon.name} 已修缮完成。` };
 }

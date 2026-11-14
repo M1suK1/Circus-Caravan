@@ -16,7 +16,6 @@ import {
   X,
 } from 'lucide-react';
 import { REGION_CATALOG } from '../../content/regions.ts';
-import { findBeastSpecies } from '../../content/species.ts';
 import { fallbackSettlementDetails, surroundingTerrainsOf } from '../../domain/regionGen.ts';
 import {
   buildSettlementBuildings,
@@ -32,6 +31,7 @@ import type {
   SettlementPoi,
   Supplies,
 } from '../../types.ts';
+import { ContractBoard } from './ContractBoard.tsx';
 
 const ACT_LABELS: Record<string, string> = {
   acrobatics: '高空杂技',
@@ -67,14 +67,13 @@ export function ScoutDialog({
   onClose,
   onCommitScout,
   onAction,
-  onNotify,
 }: {
   state: CircusState;
   poi: SettlementPoi;
   onClose: () => void;
   onCommitScout: (poiId: string, details: SettlementDetails) => void;
   onAction: (action: GameAction) => void;
-  onNotify: (msg: string) => void;
+  onNotify?: (msg: string) => void;
 }) {
   const [generating, setGenerating] = useState(false);
   const [streamPreview, setStreamPreview] = useState('');
@@ -297,42 +296,11 @@ export function ScoutDialog({
                   )}
 
                   {activeBuilding.kind === 'guild_station' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div className="poi-row">
-                        <div className="poi-row-info">
-                          <b>当地商路与货客行情</b>
-                          <small>{poi.details.marketTraits.join(' · ')} · 邻近 {region.neighbors.length} 个相邻地区</small>
-                        </div>
-                      </div>
-                      <button
-                        id="building-guild-preview-btn"
-                        type="button"
-                        className="btn sm"
-                        onClick={() => onNotify(`货站登记员提示：「${poi.details?.name}」往来商队最紧缺 ${poi.details?.preferredActs.map(a => ACT_LABELS[a] ?? a).join('与')} 护航节目。`)}
-                      >
-                        查看货客运登记簿
-                      </button>
-                    </div>
+                    <ContractBoard mode="guild" state={state} poi={poi} isHere={isHere} onAction={onAction} />
                   )}
 
                   {activeBuilding.kind === 'auction_market' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <p style={{ fontSize: 11.5, color: 'var(--crimson)' }}>
-                        提示：拍卖奇兽可迅速换取隐居金币，但若拍卖具有知性的魔物娘将重创黎明圣教与魔王军关系并动摇全团士气。
-                      </p>
-                      {state.beasts.map(b => {
-                        const sp = findBeastSpecies(b.speciesId);
-                        return (
-                          <div key={b.id} className="poi-row">
-                            <div className="poi-row-info">
-                              <b>{b.nickname} ({sp?.name ?? b.speciesId})</b>
-                              <small>参考底价 ~{sp?.baseAuctionValue ?? 600} 金</small>
-                            </div>
-                            <span className="wax-pill amber">估价挂牌</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <ContractBoard mode="auction" state={state} poi={poi} isHere={isHere} onAction={onAction} />
                   )}
 
                   {activeBuilding.kind === 'sanctuary_chapel' && (

@@ -4,9 +4,11 @@ import { CaravanView } from './components/CaravanView.tsx';
 import { CartographyView } from './components/Cartography/CartographyView.tsx';
 import { BeastDialog } from './components/Modals/BeastDialog.tsx';
 import { BestiaryDialog } from './components/Modals/BestiaryDialog.tsx';
+import { DayLedgerDialog } from './components/Modals/DayLedgerDialog.tsx';
 import { EngineConfigDialog } from './components/Modals/EngineConfigDialog.tsx';
 import { GuideDialog, NotificationsDrawer } from './components/Modals/GuideAndNotifs.tsx';
 import { PerformerDialog } from './components/Modals/PerformerDialog.tsx';
+import { RetirementDialog } from './components/Modals/RetirementDialog.tsx';
 import { ScoutDialog } from './components/Modals/ScoutDialog.tsx';
 import { OrnateAtlasFrame } from './components/OrnateAtlasFrame.tsx';
 import { RecordsView } from './components/RecordsView.tsx';
@@ -45,6 +47,8 @@ type ModalState =
   | { type: 'engine' }
   | { type: 'guide' }
   | { type: 'notifications' }
+  | { type: 'ledger' }
+  | { type: 'retirement' }
   | null;
 
 interface TravelAnimState {
@@ -82,10 +86,20 @@ export function App() {
   }, []);
 
   const dispatch = useCallback((action: GameAction) => {
+    const prevDay = state.day;
     const res = act(state, action);
     setState(res.state);
     if (res.ok) setDirty(true);
     if (res.message) notify(res.message, !res.ok);
+    if (
+      res.ok
+      && (action.type === 'endDay' || action.type === 'advanceTimeSlot')
+      && res.state.lastLedger
+      && res.state.lastLedger.day === prevDay
+      && res.state.day > prevDay
+    ) {
+      setModal({ type: 'ledger' });
+    }
     return res;
   }, [state, notify]);
 
@@ -290,7 +304,10 @@ export function App() {
             )}
 
             {page === 'records' && (
-              <RecordsView state={state} onNotify={notify} />
+              <RecordsView
+                state={state}
+                onOpenRetirement={() => setModal({ type: 'retirement' })}
+              />
             )}
           </div>
         </main>
@@ -334,6 +351,8 @@ export function App() {
             setRouteHistory([]);
           }
         }}
+        onAdvanceTimeSlot={() => dispatch({ type: 'advanceTimeSlot' })}
+        onOpenRetirement={() => setModal({ type: 'retirement' })}
       />
 
       <HelmBar
@@ -349,6 +368,7 @@ export function App() {
           }
         }}
         onLaunchRoute={handleLaunchRoute}
+        onEndDay={() => dispatch({ type: 'endDay' })}
         onReturnMap={() => setPage('map')}
         onOpenGuide={() => setModal({ type: 'guide' })}
       />
@@ -421,6 +441,33 @@ export function App() {
 
       {modal?.type === 'notifications' && (
         <NotificationsDrawer logs={state.logs} onClose={() => setModal(null)} />
+      )}
+
+      {modal?.type === 'ledger' && state.lastLedger && (
+        <DayLedgerDialog
+          ledger={state.lastLedger}
+          nextDay={state.day}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {(state.phase === 'retired' || modal?.type === 'retirement') && (
+        <RetirementDialog
+          state={state}
+          onRetire={haven => {
+            const res = dispatch({ type: 'retire', haven });
+            if (res.ok) setModal(null);
+          }}
+          onNewGame={() => {
+            stopTravelAnimation();
+            setRouteDraft(null);
+            setRouteHistory([]);
+            setModal(null);
+            setPage('map');
+            dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
+          }}
+          onClose={state.phase === 'retired' ? undefined : () => setModal(null)}
+        />
       )}
     </div>
   );

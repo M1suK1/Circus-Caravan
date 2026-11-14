@@ -17,10 +17,10 @@ const LOG_KIND_CN: Record<GameLog['kind'], string> = {
 
 export function RecordsView({
   state,
-  onNotify,
+  onOpenRetirement,
 }: {
   state: CircusState;
-  onNotify: (msg: string, warn?: boolean) => void;
+  onOpenRetirement: () => void;
 }) {
   const [kindFilter, setKindFilter] = useState<'all' | GameLog['kind']>('all');
   const logs = kindFilter === 'all' ? state.logs : state.logs.filter(l => l.kind === kindFilter);
@@ -47,7 +47,7 @@ export function RecordsView({
             type="button"
             className="btn sm primary"
             disabled={!canRetire(state)}
-            onClick={() => onNotify('终局条件已满足！完整结局结算将在后续接入全团个人尾声叙事。')}
+            onClick={onOpenRetirement}
           >
             <Sparkles size={12} />{canRetire(state) ? '宣布收摊 · 共同隐居' : '积累隐居基金中'}
           </button>

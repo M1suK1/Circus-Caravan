@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  Award,
   Bell,
   BookOpen,
   Building2,
@@ -21,9 +22,12 @@ import {
   Save,
   ScrollText,
   Sparkles,
+  Sunset,
   Wrench,
   X,
 } from 'lucide-react';
+import { describeClock, timeSlotProgress } from '../domain/calendar.ts';
+import { canRetire } from '../domain/caravanMath.ts';
 import { CIRCUS_ROLE_LABELS } from '../domain/cardAdapter.ts';
 import { isTileExplored } from '../domain/routeDraw.ts';
 import type { AppPage, CircusState, Performer, RegionId, RouteEvaluation, SettlementPoi } from '../types.ts';
@@ -195,6 +199,8 @@ export function RightTroupeLedger({
   onOpenScout,
   onAssistSketchTo,
   onCrossBorder,
+  onAdvanceTimeSlot,
+  onOpenRetirement,
 }: {
   state: CircusState;
   dirty: boolean;
@@ -205,14 +211,17 @@ export function RightTroupeLedger({
   onOpenScout: (poi: SettlementPoi) => void;
   onAssistSketchTo: (tx: number, ty: number) => void;
   onCrossBorder: (targetRegionId: RegionId) => void;
+  onAdvanceTimeSlot: () => void;
+  onOpenRetirement: () => void;
 }) {
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
   const avgDurability = Math.round(
     state.caravan.wagons.reduce((sum, w) => sum + w.durability, 0) / Math.max(1, state.caravan.wagons.length),
   );
-  const slotLabel = state.timeSlot === 'dawn' ? '拂晓' : state.timeSlot === 'noon' ? '正午' : state.timeSlot === 'dusk' ? '暮色' : '夜演';
   const currentPoi = state.world.currentPoiId && map ? map.pois[state.world.currentPoiId] : undefined;
+  const retireReady = canRetire(state);
+  const slotPct = Math.round(timeSlotProgress(state.timeSlot) * 100);
 
   const discoveredPois = map
     ? Object.values(map.pois).filter(poi => isSettlementRevealed(map, poi, state.world.pos))
@@ -230,10 +239,17 @@ export function RightTroupeLedger({
       {/* 右上角计时、巡游金币与核心补给速览 */}
       <div className="octo-ledger-top">
         <div className="octo-chrono-row">
-          <span className="octo-chrono">
+          <button
+            id="advance-timeslot-btn"
+            type="button"
+            className="octo-chrono octo-chrono-btn"
+            title="点击推移时段（夜演之后自动进入日结）"
+            disabled={state.phase === 'retired'}
+            onClick={onAdvanceTimeSlot}
+          >
             <Clock size={13} />
-            <b>第 {String(state.day).padStart(3, '0')} 日 · {slotLabel}</b>
-          </span>
+            <b>{describeClock(state.day, state.timeSlot)}</b>
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button id="heading-load-btn" type="button" className="octo-mini-btn" onClick={onLoadQuick}>
               读档
@@ -251,10 +267,26 @@ export function RightTroupeLedger({
             </button>
           </div>
         </div>
+        <div className="chrono-arc-track" aria-hidden="true">
+          <i style={{ width: `${slotPct}%` }} />
+        </div>
 
         <div className="octo-gold-row" title={`隐居目标 ${state.retirement.targetGold.toLocaleString('zh-CN')} 金币`}>
           <span className="octo-currency-mark"><Sparkles size={13} />巡游金</span>
-          <strong>{state.gold.toLocaleString('zh-CN')}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {retireReady && (
+              <button
+                id="retire-entry-btn"
+                type="button"
+                className="octo-inline-action primary"
+                title="已达到隐居条件，点击选择隐居之地"
+                onClick={onOpenRetirement}
+              >
+                <Award size={11} />收摊隐居
+              </button>
+            )}
+            <strong>{state.gold.toLocaleString('zh-CN')}</strong>
+          </div>
         </div>
 
         <div className="octo-supply-strip" role="group" aria-label="行军物资余量">
@@ -458,6 +490,7 @@ export function HelmBar({
   onUndoRoute,
   onClearRoute,
   onLaunchRoute,
+  onEndDay,
   onReturnMap,
   onOpenGuide,
 }: {
@@ -468,6 +501,7 @@ export function HelmBar({
   onUndoRoute: () => void;
   onClearRoute: () => void;
   onLaunchRoute: () => void;
+  onEndDay: () => void;
   onReturnMap: () => void;
   onOpenGuide: () => void;
 }) {
@@ -529,6 +563,17 @@ export function HelmBar({
             </button>
           </>
         )}
+
+        <button
+          id="end-day-btn"
+          type="button"
+          className="octo-bar-action"
+          disabled={Boolean(isTraveling) || state.phase === 'retired'}
+          title="收摊结算今日口粮、兽料、薪资并迎来次日拂晓"
+          onClick={onEndDay}
+        >
+          <Sunset size={12} />结束今日
+        </button>
 
         <div className="octo-keyhints" aria-label="快捷键操作提示">
           <span className="octo-hint-item">

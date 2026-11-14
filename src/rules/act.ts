@@ -1,5 +1,11 @@
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import {
+  applyAcceptFreightOrder,
+  applyAcceptPassengerOrder,
+  applyDeliverContract,
+  applySellBeast,
+} from './contractOps.ts';
+import {
   applyAttemptWildCapture,
   applyHireCandidate,
   applyImportCardAsPerformer,
@@ -9,6 +15,7 @@ import {
   applySetPerformerPortrait,
   applyUpgradeWagon,
 } from './crewOps.ts';
+import { applyRetire } from './endingOps.ts';
 import { createInitialState } from './state.ts';
 import {
   applySettlementAidOrPass,
@@ -16,6 +23,7 @@ import {
   applyStagePerform,
   applyTavernRest,
 } from './settlementOps.ts';
+import { applyAdvanceTimeSlot, applyEndDay } from './timeOps.ts';
 import { applyCrossBorder, applyExecuteRoute, applyScoutSettlement } from './travelOps.ts';
 
 export function act(state: CircusState, action: GameAction): ActionResult {
@@ -52,6 +60,20 @@ export function act(state: CircusState, action: GameAction): ActionResult {
       return applySettlementAidOrPass(state, action);
     case 'attemptWildCapture':
       return applyAttemptWildCapture(state, action);
+    case 'advanceTimeSlot':
+      return applyAdvanceTimeSlot(state);
+    case 'endDay':
+      return applyEndDay(state);
+    case 'retire':
+      return applyRetire(state, action);
+    case 'acceptFreightOrder':
+      return applyAcceptFreightOrder(state, action);
+    case 'acceptPassengerOrder':
+      return applyAcceptPassengerOrder(state, action);
+    case 'deliverContract':
+      return applyDeliverContract(state, action);
+    case 'sellBeast':
+      return applySellBeast(state, action);
     default:
       return { state, ok: false, message: '未知操作。' };
   }

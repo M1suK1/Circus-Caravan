@@ -565,6 +565,39 @@ export interface RumorItem {
   text: string;
 }
 
+export interface DayLedgerLine {
+  label: string;
+  category: 'income' | 'expense' | 'status' | 'warning';
+  detail: string;
+  amountText: string;
+  tone?: 'gold' | 'crimson' | 'forest' | 'amber';
+}
+
+export interface DayLedger {
+  day: number;
+  startingGold: number;
+  endingGold: number;
+  incomeTotal: number;
+  expenseTotal: number;
+  rationsNeeded: number;
+  rationsUsed: number;
+  rationsShortage: number;
+  fodderNeeded: number;
+  fodderUsed: number;
+  fodderShortage: number;
+  wagesDue: number;
+  wagesPaid: number;
+  unpaidWages: boolean;
+  avgDurabilityBefore: number;
+  avgDurabilityAfter: number;
+  worldDecay: number;
+  brokenWagons: string[];
+  expiredContracts: string[];
+  newRumors: string[];
+  lines: DayLedgerLine[];
+  warnings: string[];
+}
+
 export interface GameLog {
   id: string;
   day: number;
@@ -608,6 +641,7 @@ export interface CircusState {
   recentShows: ShowRecord[];
   retirement: RetirementProgress;
   rumors: RumorItem[];
+  lastLedger?: DayLedger;
   logs: GameLog[];
 }
 
@@ -633,4 +667,11 @@ export type GameAction =
   | { type: 'stagePerform'; poiId: string }
   | { type: 'settlementBuySupply'; poiId: string; supplyKey: keyof Supplies; amount: number; cost: number }
   | { type: 'settlementAidOrPass'; poiId: string; mode: 'ration_aid' | 'buy_pass' }
-  | { type: 'attemptWildCapture'; speciesId: string; useBait?: boolean; rollSeed?: number };
+  | { type: 'attemptWildCapture'; speciesId: string; useBait?: boolean; rollSeed?: number }
+  | { type: 'advanceTimeSlot' }
+  | { type: 'endDay' }
+  | { type: 'retire'; haven: 'quiet_farm' | 'hidden_valley' }
+  | { type: 'acceptFreightOrder'; orderId: string }
+  | { type: 'acceptPassengerOrder'; orderId: string }
+  | { type: 'deliverContract'; contractKind: 'freight' | 'passenger'; orderId: string }
+  | { type: 'sellBeast'; beastId: string; poiId: string };

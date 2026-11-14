@@ -21,6 +21,7 @@ export function computeCaravanCapacity(wagons: readonly Wagon[]): {
   let maxSeats = 3;
   let maxCageSlots = 1;
   for (const wagon of wagons) {
+    if (wagon.durability <= 0) continue;
     if (wagon.kind === 'cargo') maxWeight += 60 + wagon.level * 40;
     if (wagon.kind === 'passenger') maxSeats += 2 + wagon.level * 2;
     if (wagon.kind === 'cage') maxCageSlots += 1 + wagon.level * 2;

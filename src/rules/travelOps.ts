@@ -1,4 +1,5 @@
 import { REGION_CATALOG } from '../content/regions.ts';
+import { computeCaravanCapacity } from '../domain/caravanMath.ts';
 import { rollRouteEncounters } from '../domain/encounters.ts';
 import {
   fallbackSettlementDetails,
@@ -10,6 +11,7 @@ import {
   evaluateRouteStroke,
   revealCircleInMask,
 } from '../domain/routeDraw.ts';
+import { createRng, hashInt } from '../domain/worldGen.ts';
 import type { ActionResult, CircusState, Direction, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
 
@@ -21,6 +23,7 @@ const OPPOSITE_DIR: Record<Direction, Direction> = {
 };
 
 export function applyExecuteRoute(state: CircusState, action: Extract<GameAction, { type: 'executeRoute' }>): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊，无法继续行军。' };
   const next = clone(state);
   const map = next.world.regions[next.world.currentRegionId].map;
   if (!map) return { state, ok: false, message: '当前大区尚未生成小地图。' };
@@ -40,8 +43,12 @@ export function applyExecuteRoute(state: CircusState, action: Extract<GameAction
   next.supplies.rations = Math.max(0, next.supplies.rations - evalResult.rationsCost);
   if (evalResult.durabilityCost > 0) {
     for (const wagon of next.caravan.wagons) {
-      wagon.durability = Math.max(10, wagon.durability - Math.ceil(evalResult.durabilityCost / 5));
+      wagon.durability = Math.max(0, wagon.durability - Math.ceil(evalResult.durabilityCost / 5));
     }
+    const cap = computeCaravanCapacity(next.caravan.wagons);
+    next.caravan.maxWeight = cap.maxWeight;
+    next.caravan.maxSeats = cap.maxSeats;
+    next.caravan.maxCageSlots = cap.maxCageSlots;
   }
   const dayStep = Math.floor(evalResult.travelDays);
   if (dayStep > 0) next.day += dayStep;
@@ -119,6 +126,7 @@ export function applyScoutSettlement(
 }
 
 export function applyCrossBorder(state: CircusState, action: Extract<GameAction, { type: 'crossBorder' }>): ActionResult {
+  if (state.phase === 'retired') return { state, ok: false, message: '剧团已隐居收摊，无法出境。' };
   const next = clone(state);
   const currentRegion = next.world.regions[next.world.currentRegionId];
   const currentMap = currentRegion.map;
@@ -149,6 +157,24 @@ export function applyCrossBorder(state: CircusState, action: Extract<GameAction,
   next.world.pos = { x: ex + 0.5, y: ey + 0.5 };
   next.world.currentPoiId = undefined;
   revealCircleInMask(destMap, ex, ey, CARAVAN_VISION_RADIUS);
+
+  // 违禁品跨区 25% 边境卫队盘查查获
+  for (const order of next.freightOrders) {
+    if (order.status === 'carrying' && order.contraband) {
+      const checkRng = createRng(hashInt(`${next.world.seed}:contraband:${next.day}:${order.id}:${targetRegion.id}`));
+      if (checkRng() < 0.25) {
+        order.status = 'failed';
+        const fine = Math.min(next.gold, 120);
+        next.gold -= fine;
+        const dom = targetRegion.dominantFaction;
+        if (dom !== 'neutral' && next.world.factions[dom]) {
+          next.world.factions[dom].standing -= 8;
+        }
+        pushLog(next, 'faction', `边境卫队在关口查获违禁货物「${order.title}」，货物遭没收并被罚款 ${fine} 金。`);
+      }
+    }
+  }
+
   pushLog(next, 'travel', `车队跨过边境进入「${targetRegion.name}」，10× 区域地形已展开。`);
   return { state: next, ok: true, message: `已出境抵达 ${targetRegion.name}。` };
 }
