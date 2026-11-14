@@ -1,4 +1,5 @@
 import { REGION_CATALOG } from '../content/regions.ts';
+import { rollRouteEncounters } from '../domain/encounters.ts';
 import {
   fallbackSettlementDetails,
   generateRegionMap,
@@ -52,6 +53,29 @@ export function applyExecuteRoute(state: CircusState, action: Extract<GameAction
   const end = evalResult.validPoints[evalResult.validPoints.length - 1]!;
   next.world.pos = { x: Number(end.x.toFixed(2)), y: Number(end.y.toFixed(2)) };
   next.world.currentPoiId = evalResult.reachedPoiId;
+
+  // 按沿途地形与区域生态概率触发奇幻生物/魔物娘目击遭遇并写入图鉴记录
+  const encounters = rollRouteEncounters(
+    map,
+    evalResult.validPoints,
+    next.world.currentRegionId,
+    next.timeSlot,
+    next.world.seed + next.day * 31,
+  );
+  if (encounters.length) {
+    const existing = new Set(next.encounteredSpeciesIds);
+    for (const sp of encounters) {
+      if (!existing.has(sp.id)) {
+        next.encounteredSpeciesIds.push(sp.id);
+        existing.add(sp.id);
+      }
+    }
+    pushLog(
+      next,
+      'beast',
+      `沿途荒野遭遇了${encounters.map(s => `「${s.name}」`).join('、')}，已记入生态图鉴。`,
+    );
+  }
 
   const poiLabel = evalResult.reachedPoiId
     ? (map.pois[evalResult.reachedPoiId]?.details?.name ?? map.pois[evalResult.reachedPoiId]?.placeholderName)

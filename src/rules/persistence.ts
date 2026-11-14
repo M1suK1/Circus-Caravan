@@ -1,5 +1,6 @@
 import { REGION_IDS } from '../content/regions.ts';
 import { computeCaravanCapacity } from '../domain/caravanMath.ts';
+import { seedStarterEncounters } from '../domain/encounters.ts';
 import { computeWorldNeighbors } from '../domain/worldGen.ts';
 import type { CircusState } from '../types.ts';
 import { createInitialState } from './state.ts';
@@ -43,6 +44,7 @@ export function normalizeState(raw: string | null): CircusState | null {
   candidate.caravan.maxCageSlots = cap.maxCageSlots;
   candidate.worldNpcs ??= [];
   candidate.beasts ??= [];
+  candidate.encounteredSpeciesIds ??= seedStarterEncounters(candidate.world.currentRegionId);
   candidate.freightOrders ??= [];
   candidate.passengerOrders ??= [];
   candidate.recentShows ??= [];

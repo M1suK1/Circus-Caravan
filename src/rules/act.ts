@@ -9,6 +9,12 @@ import {
   applyUpgradeWagon,
 } from './crewOps.ts';
 import { createInitialState } from './state.ts';
+import {
+  applySettlementAidOrPass,
+  applySettlementBuySupply,
+  applyStagePerform,
+  applyTavernRest,
+} from './settlementOps.ts';
 import { applyCrossBorder, applyExecuteRoute, applyScoutSettlement } from './travelOps.ts';
 
 export function act(state: CircusState, action: GameAction): ActionResult {
@@ -35,6 +41,14 @@ export function act(state: CircusState, action: GameAction): ActionResult {
       return applySetPerformerExpression(state, action);
     case 'setPerformerPortrait':
       return applySetPerformerPortrait(state, action);
+    case 'tavernRest':
+      return applyTavernRest(state, action);
+    case 'stagePerform':
+      return applyStagePerform(state, action);
+    case 'settlementBuySupply':
+      return applySettlementBuySupply(state, action);
+    case 'settlementAidOrPass':
+      return applySettlementAidOrPass(state, action);
     default:
       return { state, ok: false, message: '未知操作。' };
   }

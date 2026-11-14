@@ -321,7 +321,7 @@ export function RightTroupeLedger({
                 className="octo-inline-action primary"
                 onClick={() => onOpenScout(currentPoi)}
               >
-                {currentPoi.scouted ? <><Eye size={11} />卷宗</> : <><Sparkles size={11} />侦查</>}
+                {currentPoi.scouted ? <><Eye size={11} />进入驻地</> : <><Sparkles size={11} />侦查</>}
               </button>
             </div>
             {currentPoi.scouted && currentPoi.details && (

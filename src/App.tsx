@@ -136,7 +136,16 @@ export function App() {
         animRafRef.current = null;
         setTravelAnim(null);
         const res = dispatch({ type: 'executeRoute', points, evadeWar });
-        if (res.ok) setRouteDraft(null);
+        if (res.ok) {
+          setRouteDraft(null);
+          const landedId = res.state.world.currentPoiId;
+          const landedPoi = landedId
+            ? res.state.world.regions[res.state.world.currentRegionId].map?.pois[landedId]
+            : undefined;
+          if (landedPoi) {
+            setModal({ type: 'scout', poi: landedPoi });
+          }
+        }
       }
     };
 
@@ -328,6 +337,7 @@ export function App() {
           onCommitScout={(poiId: string, details: SettlementDetails) => {
             dispatch({ type: 'scoutSettlement', poiId, details });
           }}
+          onAction={action => { dispatch(action); }}
           onNotify={msg => notify(msg)}
         />
       )}

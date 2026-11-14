@@ -1,6 +1,7 @@
 import { createInitialFactions } from '../content/factions.ts';
 import { REGION_CATALOG, createInitialMacroRegions } from '../content/regions.ts';
 import { computeCaravanCapacity } from '../domain/caravanMath.ts';
+import { seedStarterEncounters } from '../domain/encounters.ts';
 import {
   fallbackSettlementDetails,
   generateRegionMap,
@@ -184,6 +185,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
         pairedTamerId: 'perf-starter-moss',
       },
     ],
+    encounteredSpeciesIds: seedStarterEncounters(spawnRegionId),
     auctionHouse: [],
     world: {
       seed,

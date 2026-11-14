@@ -6,17 +6,26 @@ import {
   LocateFixed,
   MapPin,
   Minus,
+  PawPrint,
   Plus,
   Route,
   ShieldAlert,
   Sparkles,
   X,
 } from 'lucide-react';
-import { REGION_IDS } from '../../content/regions.ts';
+import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
+import { computeTerrainEncounterTable, getTerrainBaseEncounterChance } from '../../domain/encounters.ts';
 import { regionTerrainAt } from '../../domain/regionGen.ts';
-import { isTileExplored } from '../../domain/routeDraw.ts';
-import { worldRegionAt } from '../../domain/worldGen.ts';
-import type { CircusState, MapZoomMode, RouteEvaluation, SettlementPoi } from '../../types.ts';
+import { isTileExplored, TERRAIN_COST, TERRAIN_SPEED } from '../../domain/routeDraw.ts';
+import { worldRegionAt, worldTerrainAt } from '../../domain/worldGen.ts';
+import type {
+  CircusState,
+  MapZoomMode,
+  RegionId,
+  RouteEvaluation,
+  SettlementPoi,
+  TerrainType,
+} from '../../types.ts';
 import { LegendCaravanSvg, LegendCitySvg, LegendVillageSvg } from '../CaravanCrestIcon.tsx';
 import { isSettlementRevealed } from './mapIcons.ts';
 import {
@@ -49,6 +58,14 @@ const TERRAIN_CN: Record<string, string> = {
   village: '荒原村寨',
 };
 
+interface TerrainInspection {
+  gx: number;
+  gy: number;
+  regionId: RegionId;
+  terrain: TerrainType;
+  explored: boolean;
+}
+
 export function CartographyView({
   state,
   zoom,
@@ -79,6 +96,7 @@ export function CartographyView({
   const vpStateRef = useRef<ViewportTransform | null>(null);
   const downClientRef = useRef<{ x: number; y: number; button: number } | null>(null);
   const [focusedPoiId, setFocusedPoiId] = useState<string | null>(null);
+  const [inspectedTile, setInspectedTile] = useState<TerrainInspection | null>(null);
   const [cursorLabel, setCursorLabel] = useState<string>('');
 
   const region = state.world.regions[state.world.currentRegionId];
@@ -94,6 +112,7 @@ export function CartographyView({
 
   useEffect(() => {
     setFocusedPoiId(null);
+    setInspectedTile(null);
     if (zoom === 'region') {
       setFollowLocked(false);
       setCamera({
@@ -111,7 +130,6 @@ export function CartographyView({
     }
   }, [zoom, state.world.currentRegionId, state.world.seed]);
 
-  // 马车平滑行驶动画或静止落位时，若开启车队锁定则镜头同步平滑跟随
   useEffect(() => {
     if (followLocked && zoom !== 'world') {
       setCamera(prev => ({
@@ -200,12 +218,54 @@ export function CartographyView({
     stepZoom(factor, px, py);
   };
 
+  const handleRightClickInspect = (clientX: number, clientY: number, canvas: HTMLCanvasElement) => {
+    const vp = vpStateRef.current;
+    if (!vp) return;
+    const pt = sketch.toMapPoint(clientX, clientY, canvas)
+      ?? (() => {
+        const { px, py } = sketch.toCanvasPx(clientX, clientY, canvas);
+        return {
+          x: vp.viewX + (px / Math.max(1, vp.canvasW)) * vp.viewW,
+          y: vp.viewY + (py / Math.max(1, vp.canvasH)) * vp.viewH,
+        };
+      })();
+    const gx = Math.floor(pt.x);
+    const gy = Math.floor(pt.y);
+
+    if (zoom === 'world') {
+      const wTer = worldTerrainAt(state.world.worldMap, gx, gy);
+      const wReg = worldRegionAt(state.world.worldMap, gx, gy) ?? state.world.currentRegionId;
+      setFocusedPoiId(null);
+      setInspectedTile({ gx, gy, regionId: wReg, terrain: wTer, explored: true });
+      return;
+    }
+
+    if (!map) return;
+    const ter = regionTerrainAt(map, gx, gy);
+    if (ter === 'outside') return;
+    const explored = isTileExplored(map, gx, gy) || Math.hypot(gx + 0.5 - displayPos.x, gy + 0.5 - displayPos.y) <= 12;
+    setFocusedPoiId(null);
+    setInspectedTile({ gx, gy, regionId: state.world.currentRegionId, terrain: ter, explored });
+  };
+
   const currentTerrain = map
     ? regionTerrainAt(map, Math.floor(displayPos.x), Math.floor(displayPos.y))
     : 'wasteland';
 
   const focusedPoi = focusedPoiId && map ? map.pois[focusedPoiId] : undefined;
   const canDraw = interactive && !travelAnim;
+
+  const inspectSummary = useMemo(() => {
+    if (!inspectedTile) return null;
+    const table = computeTerrainEncounterTable(inspectedTile.regionId, inspectedTile.terrain, state.timeSlot);
+    const seenSet = new Set(state.encounteredSpeciesIds);
+    const seenCreatures = table.filter(item => seenSet.has(item.speciesId));
+    const unseenCount = Math.max(0, table.length - seenCreatures.length);
+    const baseChance = getTerrainBaseEncounterChance(inspectedTile.terrain);
+    const spd = TERRAIN_SPEED[inspectedTile.terrain];
+    const cost = TERRAIN_COST[inspectedTile.terrain];
+    return { table, seenCreatures, unseenCount, baseChance, spd, cost };
+  }, [inspectedTile, state.timeSlot, state.encounteredSpeciesIds]);
 
   return (
     <div id="octo-atlas-underlay" className={`octo-atlas-underlay ${interactive ? '' : 'dimmed'}`}>
@@ -217,9 +277,11 @@ export function CartographyView({
           onContextMenu={e => e.preventDefault()}
           onWheel={handleWheel}
           onPointerDown={e => {
-            if (!canDraw) return;
+            if (!interactive) return;
             downClientRef.current = { x: e.clientX, y: e.clientY, button: e.button };
-            sketch.onPointerDown(e);
+            if (!travelAnim || e.button === 2 || e.button === 1) {
+              sketch.onPointerDown(e);
+            }
           }}
           onPointerMove={e => {
             if (!interactive) return;
@@ -245,11 +307,22 @@ export function CartographyView({
           }}
           onPointerLeave={() => setCursorLabel('')}
           onPointerUp={e => {
-            if (!canDraw) return;
-            sketch.onPointerUp(e);
+            if (!interactive) return;
+            if (!travelAnim || e.button === 2 || e.button === 1) {
+              sketch.onPointerUp(e);
+            }
             const start = downClientRef.current;
             downClientRef.current = null;
-            if (start && start.button === 0 && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) {
+            if (!start) return;
+            const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+
+            // 右键轻点（位移 < 6px）：勘测地形生态与曾经遇到的奇幻生物（拖拽 >= 6px 仍为平滑平移）
+            if (start.button === 2 && dist < 6) {
+              handleRightClickInspect(e.clientX, e.clientY, e.currentTarget);
+              return;
+            }
+
+            if (canDraw && start.button === 0 && dist < 6) {
               const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
               if (pt && zoom === 'world') {
                 const clickedReg = worldRegionAt(state.world.worldMap, Math.floor(pt.x), Math.floor(pt.y));
@@ -262,6 +335,7 @@ export function CartographyView({
                 );
                 if (hit) {
                   sketch.restorePreStrokeDraft();
+                  setInspectedTile(null);
                   setFocusedPoiId(hit.id);
                 }
               }
@@ -405,9 +479,79 @@ export function CartographyView({
                     className="btn sm primary"
                     onClick={() => onOpenScout(focusedPoi)}
                   >
-                    {focusedPoi.scouted ? <><Eye size={11} />查阅卷宗</> : <><Sparkles size={11} />侦查生成</>}
+                    {focusedPoi.scouted ? <><Eye size={11} />进入驻地与建筑</> : <><Sparkles size={11} />侦查生成</>}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* 右键地图格点弹出的地形信息与曾经遇到的奇幻生物卡片 */}
+            {inspectedTile && inspectSummary && (
+              <div id="map-terrain-inspect-note" className="paper-note tone-kraft pinned octo-poi-popover" style={{ width: 326 }}>
+                <div className="card-head" style={{ marginBottom: 5 }}>
+                  <h3>
+                    <MapPin size={14} />
+                    {inspectedTile.explored
+                      ? `${TERRAIN_CN[inspectedTile.terrain] ?? inspectedTile.terrain} (${inspectedTile.gx}, ${inspectedTile.gy})`
+                      : `云雾未探明 (${inspectedTile.gx}, ${inspectedTile.gy})`}
+                  </h3>
+                  <button
+                    id="close-terrain-inspect"
+                    type="button"
+                    aria-label="关闭地形勘测卡"
+                    onClick={() => setInspectedTile(null)}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+
+                {!inspectedTile.explored ? (
+                  <p style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>
+                    该地块尚被未知流云迷雾遮蔽（所属：{REGION_CATALOG[inspectedTile.regionId].name}）。请指挥大篷车靠近点亮风灯后再右键勘测详细生态。
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <div className="stat-grid-2">
+                      <div className="metric-box">
+                        <small>行军速度 / 通行</small>
+                        <b>{inspectSummary.spd > 0 ? `×${inspectSummary.spd.toFixed(2)}` : '不可通行'}</b>
+                      </div>
+                      <div className="metric-box">
+                        <small>野外生物遭遇率</small>
+                        <b>{inspectSummary.baseChance}%</b>
+                      </div>
+                    </div>
+                    <small style={{ color: 'var(--ink-muted)' }}>
+                      所属：{REGION_CATALOG[inspectedTile.regionId].name} · 灯油消耗 ×{inspectSummary.cost.fuel} · 车损 ×{inspectSummary.cost.wear}
+                    </small>
+
+                    <div style={{ borderTop: '1px dashed var(--umber-line)', paddingTop: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <b style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
+                          <PawPrint size={12} style={{ color: 'var(--crimson)' }} />曾经遇到的奇幻生物
+                        </b>
+                        <small style={{ color: 'var(--ink-muted)' }}>未知潜在物种 {inspectSummary.unseenCount} 种</small>
+                      </div>
+                      {inspectSummary.seenCreatures.length ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+                          {inspectSummary.seenCreatures.map(sp => (
+                            <div key={sp.speciesId} className="poi-row" style={{ padding: '4px 7px' }}>
+                              <div className="poi-row-info">
+                                <b>{sp.name}</b>
+                                <small>{sp.passiveEffect ?? sp.description}</small>
+                              </div>
+                              <span className="wax-pill amber">{sp.probabilityPct}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
+                          尚未在此类地形留下遭遇记录；沿途经过此类区域时将按 {inspectSummary.baseChance}% 概率触发目击。
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -416,7 +560,7 @@ export function CartographyView({
                 <MapPin size={12} />
                 <span>
                   {region.name} ({Math.floor(displayPos.x)},{Math.floor(displayPos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
-                  {zoom !== 'world' ? ' · 支持分次续画 / 滚轮缩放 / 右键拖移' : ''}
+                  {zoom !== 'world' ? ' · 左键分次画线 / 右键查地形或拖移' : ' · 右键查大区生态'}
                   {cursorLabel ? ` ｜ 光标 ${cursorLabel}` : ''}
                 </span>
               </div>

@@ -148,6 +148,25 @@ export type ActTag = 'acrobatics' | 'beast_tame' | 'illusion' | 'comedy' | 'musi
 
 export type BeastStage = 1 | 2 | 3;
 export type BeastElement = 'starlight' | 'flame' | 'frost' | 'spore' | 'iron' | 'void';
+export type BeastCategory = 'beast' | 'monstergirl' | 'demon_army' | 'domesticated' | 'elite';
+
+export type SettlementBuildingKind =
+  | 'tavern'
+  | 'general_store'
+  | 'stage_square'
+  | 'workshop_market'
+  | 'guild_station'
+  | 'auction_market'
+  | 'sanctuary_chapel';
+
+export interface SettlementBuilding {
+  id: string;
+  kind: SettlementBuildingKind;
+  name: string;
+  subtitle: string;
+  description: string;
+  actionHint: string;
+}
 
 /* ─────────────────────────── 大篷车与补给 ─────────────────────────── */
 
@@ -421,6 +440,7 @@ export interface BeastEvolution {
 export interface BeastSpecies {
   id: string;
   name: string;
+  category?: BeastCategory;
   stage: BeastStage;
   element: BeastElement;
   cageCost: 1 | 2;
@@ -430,6 +450,9 @@ export interface BeastSpecies {
   baseCombatPower: number;
   actTags: ActTag[];
   habitatRegions: RegionId[];
+  habitats?: TerrainType[];
+  passiveEffect?: string;
+  yieldSummary?: string;
   description: string;
   evolutions: BeastEvolution[];
 }
@@ -560,6 +583,8 @@ export interface CircusState {
   worldNpcs: WorldNpc[];
   recruitPool: RecruitCandidate[];
   beasts: Beast[];
+  /** 沿途或侦查曾经遇到过的奇幻生物/魔物娘图鉴 ID 记录 */
+  encounteredSpeciesIds: string[];
   auctionHouse: AuctionListing[];
   world: {
     seed: number;
@@ -600,4 +625,8 @@ export type GameAction =
   | { type: 'importCardAsPerformer'; card: GirlCard; role?: CircusRole }
   | { type: 'placeCardAsNpc'; card: GirlCard; poiId: string; occupation?: NpcOccupation; faction?: FactionId | 'neutral' }
   | { type: 'setPerformerExpression'; performerId: string; expression: Expression }
-  | { type: 'setPerformerPortrait'; performerId: string; portrait: string };
+  | { type: 'setPerformerPortrait'; performerId: string; portrait: string }
+  | { type: 'tavernRest'; poiId: string }
+  | { type: 'stagePerform'; poiId: string }
+  | { type: 'settlementBuySupply'; poiId: string; supplyKey: keyof Supplies; amount: number; cost: number }
+  | { type: 'settlementAidOrPass'; poiId: string; mode: 'ration_aid' | 'buy_pass' };
