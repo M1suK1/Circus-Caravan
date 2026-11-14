@@ -4,6 +4,7 @@ import { cardToPerformer, cardToWorldNpc } from '../domain/cardAdapter.ts';
 import { attemptCaptureRoll } from '../domain/naturesAndCapture.ts';
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
+import { advanceClockSlots } from './timeOps.ts';
 
 export function applyUpgradeWagon(state: CircusState, action: Extract<GameAction, { type: 'upgradeWagon' }>): ActionResult {
   const next = clone(state);
@@ -191,9 +192,10 @@ export function applyAttemptWildCapture(
   const pct = Math.round(outcome.probability * 100);
 
   if (!outcome.captured) {
+    const finalFail = advanceClockSlots(next, 1);
     const msg = `投出捕获网晃动 ${outcome.shakes} 下后，${outcome.nature.name}性格的「${species.name}」（${outcome.ability.name}）挣脱逃进了荒野（本次捕获率 ${pct}%）。`;
-    pushLog(next, 'beast', msg);
-    return { state: next, ok: true, message: msg };
+    pushLog(finalFail, 'beast', msg);
+    return { state: finalFail, ok: true, message: msg };
   }
 
   next.beasts.push({
@@ -216,7 +218,8 @@ export function applyAttemptWildCapture(
   });
   // 保障调用 beastCageCost 保持一致性导入使用
   void beastCageCost;
+  const finalWin = advanceClockSlots(next, 1);
   const msg = `捕获成功！「${species.name}」入笼（性格：${outcome.nature.name} · 特性：${outcome.ability.name} · 捕获率 ${pct}%）。`;
-  pushLog(next, 'beast', msg);
-  return { state: next, ok: true, message: msg };
+  pushLog(finalWin, 'beast', msg);
+  return { state: finalWin, ok: true, message: msg };
 }

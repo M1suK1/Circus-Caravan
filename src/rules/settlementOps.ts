@@ -2,6 +2,7 @@ import { REGION_CATALOG } from '../content/regions.ts';
 import { computeShowPayout, computeTavernRestCost } from '../domain/settlements.ts';
 import type { ActionResult, CircusState, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
+import { advanceClockSlots } from './timeOps.ts';
 
 export function applyTavernRest(
   state: CircusState,
@@ -26,8 +27,9 @@ export function applyTavernRest(
   }
   next.caravan.morale = Math.min(100, next.caravan.morale + 6);
   const name = poi.details?.name ?? poi.placeholderName;
-  pushLog(next, 'crew', `在「${name}」旅店热汤休整（花费 ${cost} 金），全团体力与士气回升。`);
-  return { state: next, ok: true, message: `在 ${name} 旅店休整一夜，全团精力充沛！` };
+  const finalState = advanceClockSlots(next, 2);
+  pushLog(finalState, 'crew', `在「${name}」旅店热汤休整（花费 ${cost} 金），全团体力与士气回升。`);
+  return { state: finalState, ok: true, message: `在 ${name} 旅店休整完毕，全团精力充沛！` };
 }
 
 export function applyStagePerform(
@@ -73,8 +75,9 @@ export function applyStagePerform(
   });
   next.recentShows = next.recentShows.slice(0, 20);
 
-  pushLog(next, 'show', `在「${name}」巡演大获成功，净赚 ${totalEarned} 金，聚落希望值 +${payout.hopeGain}。`);
-  return { state: next, ok: true, message: `演出圆满落幕！获得门票与打赏共 ${totalEarned} 金。` };
+  const finalState = advanceClockSlots(next, 1);
+  pushLog(finalState, 'show', `在「${name}」巡演大获成功，净赚 ${totalEarned} 金，聚落希望值 +${payout.hopeGain}。`);
+  return { state: finalState, ok: true, message: `演出圆满落幕！获得门票与打赏共 ${totalEarned} 金。` };
 }
 
 export function applySettlementBuySupply(

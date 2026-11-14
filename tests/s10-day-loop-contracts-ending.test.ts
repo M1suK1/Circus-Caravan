@@ -6,6 +6,8 @@ import { computeCaravanCapacity, usedSeats, usedWeight } from '../src/domain/car
 import { computeAuctionQuote } from '../src/domain/auction.ts';
 import { describeClock, isDayRollover, nextTimeSlot } from '../src/domain/calendar.ts';
 import { generateFreightOffers, generatePassengerOffers } from '../src/domain/contracts.ts';
+import { findAutoRoute } from '../src/domain/pathfinding.ts';
+import { regionTerrainAt } from '../src/domain/regionGen.ts';
 import { act } from '../src/rules/act.ts';
 import { normalizeState, serializeState } from '../src/rules/persistence.ts';
 import { createInitialState } from '../src/rules/state.ts';
@@ -245,3 +247,70 @@ test('s10 UI/渲染源码契约：日结账册、委托板、隐居卷轴、夜�
     assert.equal(emojiRe.test(src), false, `${name} 严禁使用 emoji`);
   }
 });
+
+test('s10 行动驱动时间推进与防短距分次无损移动漏洞校验', () => {
+  // 1. 演出、旅店休整、初次侦查、野外捕捉均自动推进对应时段，跨夜自动日结
+  let s = createInitialState({ seed: 1007, spawnRegionId: 'empire_heart' });
+  const map = s.world.regions.empire_heart.map!;
+  const poi = Object.values(map.pois).find(p => p.scouted)!;
+  const unscoutedPoi = Object.values(map.pois).find(p => !p.scouted)!;
+  s.gold = 2000;
+
+  assert.equal(s.timeSlot, 'dawn');
+  s = act(s, { type: 'stagePerform', poiId: poi.id }).state;
+  assert.equal(s.timeSlot, 'noon', '广场开演应推进 1 个时段');
+
+  s = act(s, { type: 'scoutSettlement', poiId: unscoutedPoi.id }).state;
+  assert.equal(s.timeSlot, 'dusk', '初次侦查聚落应推进 1 个时段');
+
+  s = act(s, { type: 'tavernRest', poiId: poi.id }).state;
+  assert.equal(s.day, 2, '暮色入店休整 2 个时段应自动跨入第 2 日');
+  assert.equal(s.timeSlot, 'dawn');
+  assert.ok(s.lastLedger && s.lastLedger.day === 1, '跨夜休整应触发第 1 日日结账册');
+
+  s = act(s, { type: 'attemptWildCapture', speciesId: 'crest_bellfinch', rollSeed: 1 }).state;
+  assert.equal(s.timeSlot, 'noon', '野外蹲守捕捉应推进 1 个时段');
+
+  // 2. 短距离多次折线行军与连续累进扣费：绝不可无损白嫖移动
+  const base = createInitialState({ seed: 1008, spawnRegionId: 'empire_heart' });
+  const rMap = base.world.regions.empire_heart.map!;
+  base.supplies.fuel = 100;
+  base.supplies.rations = 100;
+
+  // 从起点找一条较长的可行路网（约 12-18 格）
+  let farTarget: { x: number; y: number } | null = null;
+  let autoPath: { x: number; y: number }[] = [];
+  for (let y = 4; y < rMap.height - 4 && !farTarget; y += 2) {
+    for (let x = 4; x < rMap.width - 4; x += 2) {
+      const d = Math.hypot(x + 0.5 - base.world.pos.x, y + 0.5 - base.world.pos.y);
+      if (d < 12 || d > 22) continue;
+      const t = regionTerrainAt(rMap, x, y);
+      if (t === 'ocean' || t === 'outside' || t === 'river' || t === 'lake' || t === 'mountain') continue;
+      const pts = findAutoRoute(rMap, base.world.pos, { x: x + 0.5, y: y + 0.5 });
+      if (pts.length >= 6) {
+        farTarget = { x: x + 0.5, y: y + 0.5 };
+        autoPath = pts;
+        break;
+      }
+    }
+  }
+  assert.ok(farTarget && autoPath.length >= 6, '应能在地图内找到可用于测试的 12+ 格可行路线');
+
+  // 将该路线拆成逐段短距离（每次只走 1 步，约 1~1.5 格）分次执行 executeRoute
+  let hopped = base;
+  for (let i = 1; i < autoPath.length; i += 1) {
+    const seg = [hopped.world.pos, autoPath[i]!];
+    const res = act(hopped, { type: 'executeRoute', points: seg });
+    if (res.ok) hopped = res.state;
+  }
+
+  assert.ok(hopped.supplies.fuel < 100, `多次短距行军累计必须消耗灯油（当前=${hopped.supplies.fuel}）`);
+  assert.ok(hopped.supplies.rations < 100, `多次短距行军累计必须消耗口粮（当前=${hopped.supplies.rations}）`);
+  assert.ok(
+    hopped.day > 1 || hopped.timeSlot !== 'dawn',
+    `多次短距行军累计必须推进时间（当前 day=${hopped.day}, slot=${hopped.timeSlot}）`,
+  );
+  const avgDur = hopped.caravan.wagons.reduce((acc, w) => acc + w.durability, 0) / hopped.caravan.wagons.length;
+  assert.ok(avgDur < 100, `多次短距行军累计必须损耗车厢耐久（当前均况=${avgDur}）`);
+});
+

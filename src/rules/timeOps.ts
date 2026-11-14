@@ -40,14 +40,21 @@ export function applyEndDay(state: CircusState): ActionResult {
   const lines: DayLedgerLine[] = [];
   const warnings: string[] = [];
 
-  // 1. 口粮结算
-  const rationsUsed = Math.min(next.supplies.rations, upkeep.rations);
-  const rationsShortage = Math.max(0, upkeep.rations - rationsUsed);
-  next.supplies.rations = Math.max(0, next.supplies.rations - rationsUsed);
+  // 1. 口粮结算（扣除行军途中已预扣的今日口粮，不重复扣账）
+  const travelRationsPaid = Math.min(upkeep.rations, Math.floor(next.world.travelCarry?.rationsPaidToday ?? 0));
+  const remainingRationsDue = Math.max(0, upkeep.rations - travelRationsPaid);
+  const rationsUsedToday = Math.min(next.supplies.rations, remainingRationsDue);
+  const rationsShortage = Math.max(0, remainingRationsDue - rationsUsedToday);
+  next.supplies.rations = Math.max(0, next.supplies.rations - rationsUsedToday);
+  if (next.world.travelCarry) next.world.travelCarry.rationsPaidToday = 0;
+  const rationsUsed = travelRationsPaid + rationsUsedToday;
+  const rationDetail = travelRationsPaid > 0
+    ? `需 ${upkeep.rations} 份（行军已扣 ${travelRationsPaid} 份，日结补扣 ${rationsUsedToday} 份）${rationsShortage > 0 ? `，短缺 ${rationsShortage} 份` : ''}`
+    : `需 ${upkeep.rations} 份，实扣 ${rationsUsed} 份${rationsShortage > 0 ? `（短缺 ${rationsShortage} 份）` : ''}`;
   lines.push({
     label: '全团与旅客口粮消耗',
     category: rationsShortage > 0 ? 'warning' : 'expense',
-    detail: `需 ${upkeep.rations} 份，实扣 ${rationsUsed} 份${rationsShortage > 0 ? `（短缺 ${rationsShortage} 份）` : ''}`,
+    detail: rationDetail,
     amountText: `-${rationsUsed} 粮`,
     tone: rationsShortage > 0 ? 'crimson' : 'amber',
   });
@@ -249,6 +256,24 @@ export function applyEndDay(state: CircusState): ActionResult {
     ok: true,
     message: warnings.length > 0 ? `第 ${settledDay} 日结完成（含 ${warnings.length} 项生存警示）` : `第 ${settledDay} 日顺利收摊，迎来第 ${next.day} 日拂晓。`,
   };
+}
+
+export function advanceClockSlots(state: CircusState, slots: number): CircusState {
+  if (slots <= 0 || state.phase === 'retired') return state;
+  let cur = state;
+  for (let i = 0; i < slots; i += 1) {
+    if (cur.phase === 'retired') break;
+    if (isDayRollover(cur.timeSlot)) {
+      const rolled = applyEndDay(cur);
+      if (!rolled.ok) break;
+      cur = rolled.state;
+    } else {
+      const step = clone(cur);
+      step.timeSlot = nextTimeSlot(step.timeSlot);
+      cur = step;
+    }
+  }
+  return cur;
 }
 
 export function applyAdvanceTimeSlot(state: CircusState): ActionResult {

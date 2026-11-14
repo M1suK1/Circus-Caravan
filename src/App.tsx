@@ -91,13 +91,8 @@ export function App() {
     setState(res.state);
     if (res.ok) setDirty(true);
     if (res.message) notify(res.message, !res.ok);
-    if (
-      res.ok
-      && (action.type === 'endDay' || action.type === 'advanceTimeSlot')
-      && res.state.lastLedger
-      && res.state.lastLedger.day === prevDay
-      && res.state.day > prevDay
-    ) {
+    const rolledOver = res.ok && res.state.day > prevDay && res.state.lastLedger && res.state.lastLedger.day >= prevDay;
+    if (rolledOver && !(action.type === 'executeRoute' && res.state.world.currentPoiId)) {
       setModal({ type: 'ledger' });
     }
     return res;
@@ -352,6 +347,7 @@ export function App() {
           }
         }}
         onAdvanceTimeSlot={() => dispatch({ type: 'advanceTimeSlot' })}
+        onOpenLedger={() => setModal({ type: 'ledger' })}
         onOpenRetirement={() => setModal({ type: 'retirement' })}
       />
 

@@ -200,6 +200,7 @@ export function RightTroupeLedger({
   onAssistSketchTo,
   onCrossBorder,
   onAdvanceTimeSlot,
+  onOpenLedger,
   onOpenRetirement,
 }: {
   state: CircusState;
@@ -212,6 +213,7 @@ export function RightTroupeLedger({
   onAssistSketchTo: (tx: number, ty: number) => void;
   onCrossBorder: (targetRegionId: RegionId) => void;
   onAdvanceTimeSlot: () => void;
+  onOpenLedger: () => void;
   onOpenRetirement: () => void;
 }) {
   const region = state.world.regions[state.world.currentRegionId];
@@ -251,6 +253,11 @@ export function RightTroupeLedger({
             <b>{describeClock(state.day, state.timeSlot)}</b>
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {state.lastLedger && (
+              <button id="open-last-ledger-btn" type="button" className="octo-mini-btn" title="查看最近一次日结账册" onClick={onOpenLedger}>
+                账册
+              </button>
+            )}
             <button id="heading-load-btn" type="button" className="octo-mini-btn" onClick={onLoadQuick}>
               读档
             </button>
@@ -515,8 +522,8 @@ export function HelmBar({
       <div className="helm-status">
         {routeDraft && routeDraft.distanceTiles > 0 ? (
           <span>
-            <b>已绘墨线 {routeDraft.distanceTiles} 里</b> · 均速 ×{routeDraft.avgSpeedMultiplier} · 预计 {routeDraft.travelDays} 日 ·
-            消耗 口粮 {routeDraft.rationsCost} / 灯油 {routeDraft.fuelCost} / 车损 ~{routeDraft.durabilityCost}
+            <b>已绘墨线 {routeDraft.distanceTiles} 里</b> · 均速 ×{routeDraft.avgSpeedMultiplier} · 预计 {routeDraft.travelDays} 日（约 {Math.max(0.1, Number(((routeDraft.exactTravelDays ?? routeDraft.travelDays) * 4).toFixed(1)))} 时段）·
+            累进消耗 口粮 {routeDraft.rationsCost > 0 ? routeDraft.rationsCost : (routeDraft.exactRationsCost ?? 0).toFixed(1)} / 灯油 {routeDraft.fuelCost > 0 ? routeDraft.fuelCost : (routeDraft.exactFuelCost ?? 0).toFixed(1)} / 车损 ~{routeDraft.durabilityCost > 0 ? routeDraft.durabilityCost : (routeDraft.exactWearCost ?? 0).toFixed(1)}
             {routeDraft.blocked && <em style={{ color: '#f07c6e', marginLeft: 8, fontStyle: 'normal' }}>（{routeDraft.blockReason}）</em>}
           </span>
         ) : page !== 'map' ? (

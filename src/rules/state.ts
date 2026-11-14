@@ -196,6 +196,7 @@ export function createInitialState(options: { seed?: number; spawnRegionId?: Reg
       currentRegionId: spawnRegionId,
       pos: { x: startPoi.x + 0.5, y: startPoi.y + 0.5 },
       currentPoiId: startPoi.id,
+      travelCarry: { days: 0, fuel: 0, rations: 0, wear: 0, rationsPaidToday: 0 },
       worldMap,
       regions,
       factions: createInitialFactions(),

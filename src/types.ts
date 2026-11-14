@@ -300,11 +300,23 @@ export interface RouteEvaluation {
   rationsCost: number;
   fuelCost: number;
   durabilityCost: number;
+  exactTravelDays?: number;
+  exactRationsCost?: number;
+  exactFuelCost?: number;
+  exactWearCost?: number;
   blocked: boolean;
   blockReason?: string;
   reachedGate?: RegionGate;
   reachedPoiId?: string;
   avgSpeedMultiplier: number;
+}
+
+export interface TravelCarry {
+  days: number;
+  fuel: number;
+  rations: number;
+  wear: number;
+  rationsPaidToday: number;
 }
 
 export interface MacroRegion {
@@ -630,6 +642,7 @@ export interface CircusState {
     pos: { x: number; y: number };
     currentPoiId?: string;
     traveling?: TravelProgress;
+    travelCarry?: TravelCarry;
     worldMap: WorldMapData;
     regions: Record<RegionId, MacroRegion>;
     factions: Record<FactionId, FactionState>;

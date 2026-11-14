@@ -146,6 +146,10 @@ export function evaluateRouteStroke(
       rationsCost: 0,
       fuelCost: 0,
       durabilityCost: 0,
+      exactTravelDays: 0,
+      exactRationsCost: 0,
+      exactFuelCost: 0,
+      exactWearCost: 0,
       blocked: false,
       avgSpeedMultiplier: 1,
     };
@@ -211,10 +215,15 @@ export function evaluateRouteStroke(
   );
 
   const heads = state.performers.length + state.passengerOrders.filter(o => o.status === 'aboard').reduce((s, o) => s + o.seatsNeeded, 0);
-  const travelDays = Math.max(0, Number((weightedDays * (evadeWar ? 1.25 : 1)).toFixed(2)));
-  const rationsCost = Math.max(0, Math.round(travelDays * heads));
-  const fuelCost = Math.max(0, Math.round(fuelAcc * (evadeWar ? 0.85 : 1)));
-  const durabilityCost = Math.max(0, Math.round(wearAcc));
+  const exactTravelDays = Math.max(0, weightedDays * (evadeWar ? 1.25 : 1));
+  const exactRationsCost = Math.max(0, exactTravelDays * heads);
+  const exactFuelCost = Math.max(0, fuelAcc * (evadeWar ? 0.85 : 1));
+  const exactWearCost = Math.max(0, wearAcc);
+
+  const travelDays = Math.max(0, Number(exactTravelDays.toFixed(2)));
+  const rationsCost = Math.max(0, Math.round(exactRationsCost));
+  const fuelCost = Math.max(0, Math.round(exactFuelCost));
+  const durabilityCost = Math.max(0, Math.round(exactWearCost));
 
   return {
     points: [...rawPoints],
@@ -224,6 +233,10 @@ export function evaluateRouteStroke(
     rationsCost,
     fuelCost,
     durabilityCost,
+    exactTravelDays,
+    exactRationsCost,
+    exactFuelCost,
+    exactWearCost,
     blocked,
     blockReason,
     reachedGate,
@@ -293,7 +306,11 @@ export function mergeRouteEvaluations(base: RouteEvaluation, ext: RouteEvaluatio
   if (ext.points.length < 2) return base;
   const mergedValid = [...base.validPoints, ...ext.validPoints.slice(1)];
   const totalDist = Number((base.distanceTiles + ext.distanceTiles).toFixed(1));
-  const totalDays = Number((base.travelDays + ext.travelDays).toFixed(2));
+  const exactTravelDays = (base.exactTravelDays ?? base.travelDays) + (ext.exactTravelDays ?? ext.travelDays);
+  const exactRationsCost = (base.exactRationsCost ?? base.rationsCost) + (ext.exactRationsCost ?? ext.rationsCost);
+  const exactFuelCost = (base.exactFuelCost ?? base.fuelCost) + (ext.exactFuelCost ?? ext.fuelCost);
+  const exactWearCost = (base.exactWearCost ?? base.durabilityCost) + (ext.exactWearCost ?? ext.durabilityCost);
+  const totalDays = Number(exactTravelDays.toFixed(2));
   const avgSpd = totalDist > 0.05
     ? Number(
         (
@@ -308,9 +325,13 @@ export function mergeRouteEvaluations(base: RouteEvaluation, ext: RouteEvaluatio
     validPoints: mergedValid,
     distanceTiles: totalDist,
     travelDays: totalDays,
-    rationsCost: base.rationsCost + ext.rationsCost,
-    fuelCost: base.fuelCost + ext.fuelCost,
-    durabilityCost: base.durabilityCost + ext.durabilityCost,
+    rationsCost: Math.round(exactRationsCost),
+    fuelCost: Math.round(exactFuelCost),
+    durabilityCost: Math.round(exactWearCost),
+    exactTravelDays,
+    exactRationsCost,
+    exactFuelCost,
+    exactWearCost,
     blocked: ext.blocked,
     blockReason: ext.blockReason,
     reachedGate: ext.reachedGate ?? base.reachedGate,

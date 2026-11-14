@@ -14,6 +14,7 @@ import {
 import { createRng, hashInt } from '../domain/worldGen.ts';
 import type { ActionResult, CircusState, Direction, GameAction } from '../types.ts';
 import { clone, pushLog } from './core.ts';
+import { advanceClockSlots } from './timeOps.ts';
 
 const OPPOSITE_DIR: Record<Direction, Direction> = {
   north: 'south',
@@ -38,20 +39,51 @@ export function applyExecuteRoute(state: CircusState, action: Extract<GameAction
     return { state, ok: false, message: evalResult.blockReason ?? '路线过短，请在地图上拖出有效轨迹。' };
   }
 
-  // 扣除资源（允许在困窘时降到 0 并扣减士气提示）
-  next.supplies.fuel = Math.max(0, next.supplies.fuel - evalResult.fuelCost);
-  next.supplies.rations = Math.max(0, next.supplies.rations - evalResult.rationsCost);
-  if (evalResult.durabilityCost > 0) {
+  // 连续小数累进扣费：杜绝短距离分次拖拽导致每次四舍五入为 0 的无损移动漏洞
+  const carry = {
+    days: next.world.travelCarry?.days ?? 0,
+    fuel: next.world.travelCarry?.fuel ?? 0,
+    rations: next.world.travelCarry?.rations ?? 0,
+    wear: next.world.travelCarry?.wear ?? 0,
+    rationsPaidToday: next.world.travelCarry?.rationsPaidToday ?? 0,
+  };
+  const exactFuel = evalResult.exactFuelCost ?? evalResult.fuelCost;
+  const exactRations = evalResult.exactRationsCost ?? evalResult.rationsCost;
+  const exactWear = evalResult.exactWearCost ?? evalResult.durabilityCost;
+  const exactDays = evalResult.exactTravelDays ?? evalResult.travelDays;
+
+  carry.fuel += exactFuel;
+  const fuelDeduct = Math.floor(carry.fuel);
+  carry.fuel -= fuelDeduct;
+  next.supplies.fuel = Math.max(0, next.supplies.fuel - fuelDeduct);
+
+  carry.rations += exactRations;
+  const rationsWanted = Math.floor(carry.rations);
+  carry.rations -= rationsWanted;
+  const rationsActual = Math.min(next.supplies.rations, rationsWanted);
+  next.supplies.rations -= rationsActual;
+  carry.rationsPaidToday += rationsActual;
+  if (rationsWanted > rationsActual) {
+    next.caravan.morale = Math.max(0, next.caravan.morale - (rationsWanted - rationsActual) * 3);
+  }
+
+  carry.wear += exactWear / 5;
+  const wearDeduct = Math.floor(carry.wear);
+  carry.wear -= wearDeduct;
+  if (wearDeduct > 0) {
     for (const wagon of next.caravan.wagons) {
-      wagon.durability = Math.max(0, wagon.durability - Math.ceil(evalResult.durabilityCost / 5));
+      wagon.durability = Math.max(0, wagon.durability - wearDeduct);
     }
     const cap = computeCaravanCapacity(next.caravan.wagons);
     next.caravan.maxWeight = cap.maxWeight;
     next.caravan.maxSeats = cap.maxSeats;
     next.caravan.maxCageSlots = cap.maxCageSlots;
   }
-  const dayStep = Math.floor(evalResult.travelDays);
-  if (dayStep > 0) next.day += dayStep;
+
+  carry.days += exactDays;
+  const slotsToAdvance = Math.floor(carry.days * 4);
+  carry.days -= slotsToAdvance / 4;
+  next.world.travelCarry = carry;
 
   // 沿途逐点揭露迷雾（玩家现在周围 + 曾经到过的地貌永久可见）
   for (const pt of evalResult.validPoints) {
@@ -84,16 +116,17 @@ export function applyExecuteRoute(state: CircusState, action: Extract<GameAction
     );
   }
 
+  const finalState = slotsToAdvance > 0 ? advanceClockSlots(next, slotsToAdvance) : next;
   const poiLabel = evalResult.reachedPoiId
     ? (map.pois[evalResult.reachedPoiId]?.details?.name ?? map.pois[evalResult.reachedPoiId]?.placeholderName)
     : undefined;
   const note = poiLabel
     ? `车队沿路线行驶 ${evalResult.distanceTiles} 里，抵达「${poiLabel}」。`
     : evalResult.reachedGate
-      ? `车队抵达通往「${next.world.regions[evalResult.reachedGate.targetRegionId].name}」的边境关口。`
-      : `车队沿路线行驶 ${evalResult.distanceTiles} 里，消耗口粮 ${evalResult.rationsCost}、灯油 ${evalResult.fuelCost}。`;
-  pushLog(next, 'travel', note);
-  return { state: next, ok: true, message: note };
+      ? `车队抵达通往「${finalState.world.regions[evalResult.reachedGate.targetRegionId].name}」的边境关口。`
+      : `车队沿路线行驶 ${evalResult.distanceTiles} 里，实扣口粮 ${rationsActual}、灯油 ${fuelDeduct}。`;
+  pushLog(finalState, 'travel', note);
+  return { state: finalState, ok: true, message: note };
 }
 
 export function applyScoutSettlement(
@@ -113,6 +146,7 @@ export function applyScoutSettlement(
     surroundingTerrainsOf(map, poi.x, poi.y),
     next.world.seed + next.day,
   );
+  const wasScouted = poi.scouted;
   poi.scouted = true;
   poi.details = {
     ...details,
@@ -121,8 +155,9 @@ export function applyScoutSettlement(
     marketTraits: [...details.marketTraits],
   };
   revealCircleInMask(map, poi.x, poi.y, CARAVAN_VISION_RADIUS);
-  pushLog(next, 'scout', `斥候探明了「${details.name}」（${poi.kind === 'city' ? '城市' : '村庄'}）：${details.summary}`);
-  return { state: next, ok: true, message: `已探明 ${details.name}。` };
+  const finalState = !wasScouted ? advanceClockSlots(next, 1) : next;
+  pushLog(finalState, 'scout', `斥候探明了「${details.name}」（${poi.kind === 'city' ? '城市' : '村庄'}）：${details.summary}`);
+  return { state: finalState, ok: true, message: `已探明 ${details.name}。` };
 }
 
 export function applyCrossBorder(state: CircusState, action: Extract<GameAction, { type: 'crossBorder' }>): ActionResult {
