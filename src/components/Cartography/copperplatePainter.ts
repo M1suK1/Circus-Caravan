@@ -103,23 +103,18 @@ function applyWaterEngraving(
   y: number,
   seed: number,
 ): [number, number, number] {
-  const jitter = valueNoise2d(x, y, 3.6, seed + 811);
-  // 紧贴陆地的浓墨海岸勾线
-  if (d === 1) return [54, 38, 25];
-  // 三道古典铜版画平行海岸水波纹环线（d = 3, 6, 9）
-  if (d === 3 || (d === 4 && jitter > 0.78)) return [88, 74, 58];
-  if (d === 6 || (d === 7 && jitter > 0.76)) return [106, 96, 80];
-  if (d === 9 && jitter > 0.34) return [118, 112, 98];
-
-  // 远海水深渐暗与水平断续铜版排线
-  const sink = Math.min(20, d * 1.15);
-  let r = rgb[0] - sink;
-  let g = rgb[1] - sink * 0.9;
-  let b = rgb[2] - sink * 0.8;
-  if (d > 4 && y % 3 === 0 && jitter > 0.44) {
-    r -= 15;
-    g -= 15;
-    b -= 14;
+  const jitter = valueNoise2d(x, y, 4.0, seed + 811);
+  // 柔和浅滩至深水渐变：紧邻陆地呈浅青泛白浅滩过渡，彻底去除水体周围深色像素块边缘
+  const shoalLift = d <= 2 ? (3 - d) * 14 : 0;
+  const deepSink = d > 2 ? Math.min(18, (d - 2) * 1.45) : 0;
+  let r = rgb[0] + shoalLift - deepSink;
+  let g = rgb[1] + shoalLift * 0.95 - deepSink * 0.85;
+  let b = rgb[2] + shoalLift * 0.78 - deepSink * 0.68;
+  // 极柔和的水面水平波光微纹（避免深色方块感）
+  if (d >= 3 && y % 3 === 0 && jitter > 0.56) {
+    r += 5;
+    g += 6;
+    b += 7;
   }
   return [r, g, b];
 }
@@ -382,24 +377,6 @@ export function paintRegionCopperplateDetails(
       } else if (ter === 'road') {
         ctx.fillStyle = 'rgba(88, 58, 30, 0.52)';
         ctx.fillRect(x + 0.2, y + 0.2, 0.7, 0.7);
-      }
-    }
-  }
-
-  // 2. 迷雾交界处绘制巴洛克弧形卷云花边（Cloud Volutes）
-  ctx.fillStyle = 'rgba(248, 236, 210, 0.86)';
-  ctx.strokeStyle = 'rgba(116, 86, 52, 0.52)';
-  ctx.lineWidth = 0.65;
-  for (let y = 4; y < h - 4; y += 3) {
-    for (let x = 4; x < w - 4; x += 3) {
-      const ter = TERRAIN_ORDER[terArr[y * w + x]!] ?? 'outside';
-      if (ter === 'outside' || isRevealed(x, y)) continue;
-      if (isRevealed(x - 2, y) || isRevealed(x + 2, y) || isRevealed(x, y - 2) || isRevealed(x, y + 2)) {
-        const r = 1.9 + valueNoise2d(x, y, 2.8, seed + 701) * 1.3;
-        ctx.beginPath();
-        ctx.arc(x + 0.5, y + 0.5, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
       }
     }
   }

@@ -1,5 +1,5 @@
 /**
- * 《八方旅人》风全屏底层铜版画舆图渲染器（最近邻锐利像素底图 + 高 DPI 屏幕空间版画笔触 + 连续无级缩放相机）。
+ * 《八方旅人》风全屏底层铜版画舆图渲染器（最近邻锐利像素底图 + 蓬松云朵迷雾边缘 + 高 DPI 版画笔触 + 连续无级缩放与平滑动画）。
  */
 import { REGION_CATALOG, REGION_IDS } from '../../content/regions.ts';
 import { regionTerrainArray } from '../../domain/regionGen.ts';
@@ -87,12 +87,14 @@ export function computeViewport(
   canvasW: number,
   canvasH: number,
   camera?: RegionCamera,
+  caravanPos?: { x: number; y: number },
 ): ViewportTransform {
   const regionMap = state.world.regions[state.world.currentRegionId].map;
   if (zoom === 'world' || !regionMap) {
     return { viewX: 0, viewY: 0, viewW: 128, viewH: 128, canvasW, canvasH, zoomScale: 1 };
   }
 
+  const pos = caravanPos ?? state.world.pos;
   const { availW, availH } = openStageBox(canvasW, canvasH);
   const baseScale = Math.min(availW / regionMap.width, availH / regionMap.height);
   const defaultZoom = zoom === 'follow' ? FOLLOW_DEFAULT_ZOOM : 1;
@@ -101,8 +103,8 @@ export function computeViewport(
   const viewW = availW / scale;
   const viewH = availH / scale;
 
-  const targetCx = camera?.centerX ?? (zoom === 'follow' ? state.world.pos.x : regionMap.width / 2);
-  const targetCy = camera?.centerY ?? (zoom === 'follow' ? state.world.pos.y : regionMap.height / 2);
+  const targetCx = camera?.centerX ?? (zoom === 'follow' ? pos.x : regionMap.width / 2);
+  const targetCy = camera?.centerY ?? (zoom === 'follow' ? pos.y : regionMap.height / 2);
 
   const viewX = viewW >= regionMap.width
     ? (regionMap.width - viewW) / 2
@@ -148,10 +150,6 @@ export function canvasPxToMap(
   };
 }
 
-/**
- * 以鼠标所在屏幕像素 (cursorPx, cursorPy) 为锚点计算无级缩放后的相机中心，
- * 确保滚轮缩放前后光标下的地图格点纹丝不动。
- */
 export function zoomRegionAroundCursor(
   state: CircusState,
   currentVp: ViewportTransform,
@@ -179,6 +177,57 @@ export function zoomRegionAroundCursor(
   };
 }
 
+/**
+ * 绘制古典制图风多瓣蓬松云朵轮廓（由连续贝塞尔云峰拼接为统一闭合轮廓，彻底摒弃圆圈点阵）。
+ */
+export function drawCloudBank(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  width: number,
+  height: number,
+  tilt = 0,
+): void {
+  const hw = width * 0.5;
+  const hh = height * 0.5;
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (tilt !== 0) ctx.rotate(tilt);
+
+  ctx.beginPath();
+  // 云底平缓波浪基线，两侧与顶部隆起 4 瓣饱满错落的卷云峰
+  ctx.moveTo(-hw * 0.78, hh * 0.45);
+  ctx.bezierCurveTo(-hw * 1.06, hh * 0.42, -hw * 1.04, -hh * 0.16, -hw * 0.66, -hh * 0.24);
+  ctx.bezierCurveTo(-hw * 0.62, -hh * 0.78, -hw * 0.14, -hh * 0.88, -hw * 0.04, -hh * 0.52);
+  ctx.bezierCurveTo(hw * 0.08, -hh * 0.98, hw * 0.62, -hh * 0.86, hw * 0.64, -hh * 0.28);
+  ctx.bezierCurveTo(hw * 1.04, -hh * 0.20, hw * 1.06, hh * 0.40, hw * 0.74, hh * 0.45);
+  ctx.bezierCurveTo(hw * 0.38, hh * 0.58, -hw * 0.36, hh * 0.58, -hw * 0.78, hh * 0.45);
+  ctx.closePath();
+
+  const grad = ctx.createLinearGradient(0, -hh * 0.9, 0, hh * 0.55);
+  grad.addColorStop(0, 'rgba(252, 244, 224, 0.93)');
+  grad.addColorStop(0.62, 'rgba(236, 219, 188, 0.90)');
+  grad.addColorStop(1, 'rgba(210, 189, 154, 0.86)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(132, 101, 64, 0.34)';
+  ctx.lineWidth = 1.05;
+  ctx.stroke();
+
+  // 云顶轻微暖白高光弧线
+  ctx.beginPath();
+  ctx.moveTo(-hw * 0.46, -hh * 0.38);
+  ctx.bezierCurveTo(-hw * 0.32, -hh * 0.68, -hw * 0.02, -hh * 0.66, hw * 0.08, -hh * 0.48);
+  ctx.moveTo(hw * 0.14, -hh * 0.56);
+  ctx.bezierCurveTo(hw * 0.32, -hh * 0.74, hw * 0.54, -hh * 0.58, hw * 0.54, -hh * 0.30);
+  ctx.strokeStyle = 'rgba(255, 251, 240, 0.72)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function paintSunburstAndVignette(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   const sun = ctx.createRadialGradient(w * 0.46, h * 0.04, 10, w * 0.46, h * 0.08, Math.max(w, h) * 0.55);
   sun.addColorStop(0, 'rgba(255, 244, 206, 0.34)');
@@ -195,7 +244,6 @@ function paintSunburstAndVignette(ctx: CanvasRenderingContext2D, w: number, h: n
   ctx.fillRect(0, 0, w, h);
 }
 
-/** 在最近邻锐利像素底图之上，按主画布高 DPI 分辨率绘制山峰人字笔触与林木墨弧（杜绝低分放大糊化） */
 function paintWorldScreenInk(ctx: CanvasRenderingContext2D, state: CircusState, vp: ViewportTransform): void {
   const world = state.world.worldMap;
   const terArr = worldTerrainArray(world);
@@ -242,19 +290,20 @@ function paintRegionScreenInk(
   vp: ViewportTransform,
 ): void {
   const { scale } = stageMetrics(vp);
-  if (scale < 1.8) return;
+  if (scale < 0.8) return;
   const terArr = regionTerrainArray(map);
   const mask = exploredMaskArray(map);
   const cx = caravanPos.x;
   const cy = caravanPos.y;
   const r2 = CARAVAN_VISION_RADIUS * CARAVAN_VISION_RADIUS;
 
-  const minX = Math.max(2, Math.floor(vp.viewX - 4));
-  const maxX = Math.min(map.width - 3, Math.ceil(vp.viewX + vp.viewW + 4));
-  const minY = Math.max(2, Math.floor(vp.viewY - 4));
-  const maxY = Math.min(map.height - 3, Math.ceil(vp.viewY + vp.viewH + 4));
+  const minX = Math.max(2, Math.floor(vp.viewX - 6));
+  const maxX = Math.min(map.width - 3, Math.ceil(vp.viewX + vp.viewW + 6));
+  const minY = Math.max(2, Math.floor(vp.viewY - 6));
+  const maxY = Math.min(map.height - 3, Math.ceil(vp.viewY + vp.viewH + 6));
 
   const isRevealed = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
     const idx = y * map.width + x;
     return Boolean((mask[idx >> 3]! >> (idx & 7)) & 1) || (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r2;
   };
@@ -264,28 +313,12 @@ function paintRegionScreenInk(
   ctx.lineCap = 'round';
   const step = scale >= 7 ? 2 : 3;
 
+  // 1. 已探明区域内的山峦脊线与森林树冠墨弧
   for (let y = minY - (minY % step); y <= maxY; y += step) {
     for (let x = minX - (minX % step); x <= maxX; x += step) {
       if (x < 2 || y < 2) continue;
+      if (!isRevealed(x, y)) continue;
       const ter = TERRAIN_ORDER[terArr[y * map.width + x]!] ?? 'outside';
-      if (ter === 'outside') continue;
-      const rev = isRevealed(x, y);
-
-      if (!rev) {
-        if (isRevealed(x - 2, y) || isRevealed(x + 2, y) || isRevealed(x, y - 2) || isRevealed(x, y + 2)) {
-          const { px, py } = mapToCanvasPx(x + 0.5, y + 0.5, vp);
-          const cr = (1.7 + valueNoise2d(x, y, 2.8, map.seed + 701) * 1.1) * scale;
-          ctx.beginPath();
-          ctx.arc(px, py, cr, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(248, 236, 210, 0.84)';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(116, 86, 52, 0.48)';
-          ctx.lineWidth = Math.max(1.0, scale * 0.2);
-          ctx.stroke();
-        }
-        continue;
-      }
-
       if (ter === 'mountain') {
         const { px, py } = mapToCanvasPx(x + 0.5, y + 0.5, vp);
         const mw = scale * 1.45;
@@ -308,13 +341,39 @@ function paintRegionScreenInk(
       }
     }
   }
+
+  // 2. 迷雾交界处绘制成簇连绵云朵（多瓣云朵轮廓，不再绘制圆圈）
+  const cloudStep = 5;
+  const startY = Math.max(4, minY - ((minY - 4 + cloudStep) % cloudStep));
+  const startX = Math.max(4, minX - ((minX - 4 + cloudStep) % cloudStep));
+  for (let y = startY; y <= maxY; y += cloudStep) {
+    for (let x = startX; x <= maxX; x += cloudStep) {
+      const ter = TERRAIN_ORDER[terArr[y * map.width + x]!] ?? 'outside';
+      if (ter === 'outside' || isRevealed(x, y)) continue;
+      const nearOpen = isRevealed(x - 4, y) || isRevealed(x + 4, y) || isRevealed(x, y - 4) || isRevealed(x, y + 4);
+      if (!nearOpen) continue;
+      const jx = (valueNoise2d(x, y, 2.3, map.seed + 701) - 0.5) * 2.2;
+      const jy = (valueNoise2d(x, y, 2.3, map.seed + 743) - 0.5) * 1.8;
+      const { px, py } = mapToCanvasPx(x + 0.5 + jx, y + 0.5 + jy, vp);
+      const cw = (6.8 + valueNoise2d(x, y, 3.1, map.seed + 787) * 3.4) * scale;
+      const ch = cw * 0.56;
+      const tilt = (valueNoise2d(x, y, 1.9, map.seed + 823) - 0.5) * 0.18;
+      drawCloudBank(ctx, px, py, cw, ch, tilt);
+    }
+  }
+
   ctx.restore();
 }
 
-function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: ViewportTransform): void {
+function drawWorldCanvas(
+  canvas: HTMLCanvasElement,
+  state: CircusState,
+  vp: ViewportTransform,
+  caravanPos: { x: number; y: number },
+): void {
   const ctx = canvas.getContext('2d')!;
   const world = state.world.worldMap;
-  const sig = `world-px:${world.seed}:${world.terrainBase64.length}`;
+  const sig = `world-px-v2:${world.seed}:${world.terrainBase64.length}`;
 
   const off = getBakedPixelSurface(
     world,
@@ -339,15 +398,16 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
   }
   ctx.stroke();
 
-  // 强制最近邻像素采样并对齐整数物理像素，彻底消除 128×128 大陆全图插值发糊
   ctx.imageSmoothingEnabled = false;
   const topLeft = mapToCanvasPx(0, 0, vp);
   const botRight = mapToCanvasPx(world.width, world.height, vp);
-  const dx = Math.round(topLeft.px);
-  const dy = Math.round(topLeft.py);
-  const dw = Math.round(botRight.px - topLeft.px);
-  const dh = Math.round(botRight.py - topLeft.py);
-  ctx.drawImage(off, dx, dy, dw, dh);
+  ctx.drawImage(
+    off,
+    Math.round(topLeft.px),
+    Math.round(topLeft.py),
+    Math.round(botRight.px - topLeft.px),
+    Math.round(botRight.py - topLeft.py),
+  );
 
   paintWorldScreenInk(ctx, state, vp);
   paintSunburstAndVignette(ctx, canvas.width, canvas.height);
@@ -355,7 +415,7 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
   for (const rId of REGION_IDS) {
     const rMap = state.world.regions[rId].map;
     if (!rMap) continue;
-    const refPos = rId === state.world.currentRegionId ? state.world.pos : { x: -999, y: -999 };
+    const refPos = rId === state.world.currentRegionId ? caravanPos : { x: -999, y: -999 };
     for (const poi of Object.values(rMap.pois)) {
       if (!isSettlementRevealed(rMap, poi, refPos)) continue;
       const wx = (rMap.worldOffsetX + poi.x + 0.5) / 10;
@@ -387,8 +447,8 @@ function drawWorldCanvas(canvas: HTMLCanvasElement, state: CircusState, vp: View
 
   const curMap = state.world.regions[state.world.currentRegionId].map;
   if (curMap) {
-    const wx = (curMap.worldOffsetX + state.world.pos.x) / 10;
-    const wy = (curMap.worldOffsetY + state.world.pos.y) / 10;
+    const wx = (curMap.worldOffsetX + caravanPos.x) / 10;
+    const wy = (curMap.worldOffsetY + caravanPos.y) / 10;
     const pin = mapToCanvasPx(wx, wy, vp);
     drawCaravanIcon(ctx, pin.px, pin.py, 26);
   }
@@ -400,24 +460,25 @@ function drawRegionCanvas(
   map: RegionMap,
   vp: ViewportTransform,
   routeDraft: RouteEvaluation | null,
+  caravanPos: { x: number; y: number },
+  remainingPoints?: { x: number; y: number }[],
 ): void {
   const ctx = canvas.getContext('2d')!;
-  const cx = state.world.pos.x;
-  const cy = state.world.pos.y;
-  const sig = `reg-px:${map.seed}:${map.exploredMaskBase64}:${Math.floor(cx)}:${Math.floor(cy)}`;
+  const cx = caravanPos.x;
+  const cy = caravanPos.y;
+  const sig = `reg-px-v2:${map.seed}:${map.exploredMaskBase64}:${Math.floor(cx)}:${Math.floor(cy)}`;
 
   const off = getBakedPixelSurface(
     map,
     sig,
     map.width,
     map.height,
-    buf => rasterizeRegionCopperplate(map, state.world.pos, buf),
+    buf => rasterizeRegionCopperplate(map, caravanPos, buf),
   );
 
   ctx.fillStyle = '#c4ac84';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 疆域底图同样强制最近邻锐利像素贴图，缩放至任何倍率皆清晰分明
   ctx.imageSmoothingEnabled = false;
   const p0 = mapToCanvasPx(0, 0, vp);
   const p1 = mapToCanvasPx(map.width, map.height, vp);
@@ -429,7 +490,7 @@ function drawRegionCanvas(
     Math.round(p1.py - p0.py),
   );
 
-  paintRegionScreenInk(ctx, map, state.world.pos, vp);
+  paintRegionScreenInk(ctx, map, caravanPos, vp);
   paintSunburstAndVignette(ctx, canvas.width, canvas.height);
 
   const { scale: pxPerTile } = stageMetrics(vp);
@@ -438,50 +499,49 @@ function drawRegionCanvas(
   const gateSize = Math.max(16, Math.min(23, pxPerTile * 2.3));
   const caravanSize = Math.max(24, Math.min(36, pxPerTile * 3.5));
 
-  if (routeDraft && routeDraft.points.length >= 2) {
-    if (routeDraft.validPoints.length >= 2) {
-      ctx.beginPath();
-      const first = mapToCanvasPx(routeDraft.validPoints[0]!.x, routeDraft.validPoints[0]!.y, vp);
-      ctx.moveTo(first.px, first.py);
-      for (let i = 1; i < routeDraft.validPoints.length; i += 1) {
-        const p = mapToCanvasPx(routeDraft.validPoints[i]!.x, routeDraft.validPoints[i]!.y, vp);
-        ctx.lineTo(p.px, p.py);
-      }
-      ctx.strokeStyle = 'rgba(250, 236, 204, 0.78)';
-      ctx.lineWidth = 4.6;
-      ctx.stroke();
-      ctx.setLineDash([7, 4]);
-      ctx.strokeStyle = '#22150c';
-      ctx.lineWidth = 2.4;
-      ctx.stroke();
-      ctx.setLineDash([]);
+  const validLine = remainingPoints ?? routeDraft?.validPoints;
+  if (validLine && validLine.length >= 2) {
+    ctx.beginPath();
+    const first = mapToCanvasPx(validLine[0]!.x, validLine[0]!.y, vp);
+    ctx.moveTo(first.px, first.py);
+    for (let i = 1; i < validLine.length; i += 1) {
+      const p = mapToCanvasPx(validLine[i]!.x, validLine[i]!.y, vp);
+      ctx.lineTo(p.px, p.py);
     }
-    if (routeDraft.blocked && routeDraft.validPoints.length > 0) {
-      const tailStart = routeDraft.validPoints[routeDraft.validPoints.length - 1]!;
-      const tailEnd = routeDraft.points[routeDraft.points.length - 1]!;
-      const ps = mapToCanvasPx(tailStart.x, tailStart.y, vp);
-      const pe = mapToCanvasPx(tailEnd.x, tailEnd.y, vp);
-      ctx.beginPath();
-      ctx.moveTo(ps.px, ps.py);
-      ctx.lineTo(pe.px, pe.py);
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#a63429';
-      ctx.lineWidth = 2.6;
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
+    ctx.strokeStyle = 'rgba(250, 236, 204, 0.78)';
+    ctx.lineWidth = 4.6;
+    ctx.stroke();
+    ctx.setLineDash([7, 4]);
+    ctx.strokeStyle = '#22150c';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (!remainingPoints && routeDraft?.blocked && routeDraft.validPoints.length > 0) {
+    const tailStart = routeDraft.validPoints[routeDraft.validPoints.length - 1]!;
+    const tailEnd = routeDraft.points[routeDraft.points.length - 1]!;
+    const ps = mapToCanvasPx(tailStart.x, tailStart.y, vp);
+    const pe = mapToCanvasPx(tailEnd.x, tailEnd.y, vp);
+    ctx.beginPath();
+    ctx.moveTo(ps.px, ps.py);
+    ctx.lineTo(pe.px, pe.py);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#a63429';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  for (const gate of collectVisibleGateMarkers(map, state.world.pos, vp)) {
+  for (const gate of collectVisibleGateMarkers(map, caravanPos, vp)) {
     const pos = mapToCanvasPx(gate.x + 0.5, gate.y + 0.5, vp);
     drawGateIcon(ctx, pos.px, pos.py, gateSize);
     const destMeta = state.world.regions[gate.targetRegionId];
     drawOctopathBannerCallout(ctx, pos.px, pos.py - gateSize * 0.45, `往 ${destMeta.name}`, `危级 LV.${destMeta.dangerTier}`, false);
   }
 
-  const visiblePois = collectVisibleSettlementMarkers(map, state.world.pos, vp, state.world.currentPoiId);
+  const visiblePois = collectVisibleSettlementMarkers(map, caravanPos, vp, state.world.currentPoiId);
   const regDanger = state.world.regions[state.world.currentRegionId].dangerTier;
   for (const marker of visiblePois) {
     const pos = mapToCanvasPx(marker.x + 0.5, marker.y + 0.5, vp);
@@ -513,7 +573,6 @@ function drawRegionCanvas(
     }
   }
 
-  // 大篷车图标严格锚定在真实逻辑坐标 (cx, cy) 正中心，确保指针划线起点 1:1 零偏移
   const cPx = mapToCanvasPx(cx, cy, vp);
   const edgePx = mapToCanvasPx(cx + CARAVAN_VISION_RADIUS, cy, vp);
   const visPx = Math.max(14, Math.abs(edgePx.px - cPx.px));
@@ -534,13 +593,15 @@ export function renderCartographyCanvas(
   zoom: MapZoomMode,
   routeDraft: RouteEvaluation | null,
   camera?: RegionCamera,
+  travelOverride?: { pos: { x: number; y: number }; remainingPoints: { x: number; y: number }[] },
 ): ViewportTransform {
-  const vp = computeViewport(state, zoom, canvas.width, canvas.height, camera);
+  const displayPos = travelOverride?.pos ?? state.world.pos;
+  const vp = computeViewport(state, zoom, canvas.width, canvas.height, camera, displayPos);
   const regionMap = state.world.regions[state.world.currentRegionId].map;
   if (zoom === 'world' || !regionMap) {
-    drawWorldCanvas(canvas, state, vp);
+    drawWorldCanvas(canvas, state, vp, displayPos);
   } else {
-    drawRegionCanvas(canvas, state, regionMap, vp, routeDraft);
+    drawRegionCanvas(canvas, state, regionMap, vp, routeDraft, displayPos, travelOverride?.remainingPoints);
   }
   return vp;
 }

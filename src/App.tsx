@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { CaravanView } from './components/CaravanView.tsx';
 import { CartographyView } from './components/Cartography/CartographyView.tsx';
@@ -12,7 +12,13 @@ import { RecordsView } from './components/RecordsView.tsx';
 import { HelmBar, PageHeading, RightTroupeLedger, SideRail } from './components/Shell.tsx';
 import { SuppliesView } from './components/SuppliesView.tsx';
 import { VellumDogEar } from './components/VellumDogEar.tsx';
-import { evaluateRouteStroke } from './domain/routeDraw.ts';
+import { findAutoRoute } from './domain/pathfinding.ts';
+import {
+  evaluateRouteStroke,
+  polylineLength,
+  samplePolylineAtDistance,
+  slicePolylineFromDistance,
+} from './domain/routeDraw.ts';
 import { hydrateCircusAssets, slimCircusAssets } from './engine/portraitAssets.ts';
 import { kvGet, kvSet } from './engine/store.ts';
 import { act } from './rules/act.ts';
@@ -39,18 +45,37 @@ type ModalState =
   | { type: 'notifications' }
   | null;
 
+interface TravelAnimState {
+  pos: { x: number; y: number };
+  remainingPoints: { x: number; y: number }[];
+}
+
 export function App() {
   const [state, setState] = useState<CircusState>(() => createInitialState());
   const [page, setPage] = useState<AppPage>('map');
   const [zoom, setZoom] = useState<MapZoomMode>('region');
   const [evadeWar, setEvadeWar] = useState(false);
   const [routeDraft, setRouteDraft] = useState<RouteEvaluation | null>(null);
+  const [travelAnim, setTravelAnim] = useState<TravelAnimState | null>(null);
+  const animRafRef = useRef<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<{ text: string; warn?: boolean } | null>(null);
 
   const notify = useCallback((text: string, warn = false) => {
     setToast({ text, warn });
+  }, []);
+
+  const stopTravelAnimation = useCallback(() => {
+    if (animRafRef.current !== null) {
+      cancelAnimationFrame(animRafRef.current);
+      animRafRef.current = null;
+    }
+    setTravelAnim(null);
+  }, []);
+
+  useEffect(() => () => {
+    if (animRafRef.current !== null) cancelAnimationFrame(animRafRef.current);
   }, []);
 
   const dispatch = useCallback((action: GameAction) => {
@@ -62,20 +87,62 @@ export function App() {
   }, [state, notify]);
 
   const handleAssistSketchTo = useCallback((tx: number, ty: number) => {
+    if (travelAnim) return;
     const map = state.world.regions[state.world.currentRegionId].map;
     if (!map) return;
-    const draft = evaluateRouteStroke(map, [state.world.pos, { x: tx + 0.5, y: ty + 0.5 }], state, evadeWar);
+    const autoPts = findAutoRoute(map, state.world.pos, { x: tx + 0.5, y: ty + 0.5 }, evadeWar);
+    if (autoPts.length < 2) {
+      notify('未能找到通往该据点的可行陆路或桥梁。', true);
+      return;
+    }
+    const draft = evaluateRouteStroke(map, autoPts, state, evadeWar);
     setRouteDraft(draft);
     setPage('map');
     if (zoom === 'world') setZoom('region');
-    notify(draft.blocked ? `引线遇阻：${draft.blockReason}` : `已绘参考墨线至目标（${draft.distanceTiles} 里），按 Enter 或点「沿线启程」。`, draft.blocked);
-  }, [state, evadeWar, zoom, notify]);
+    notify(
+      draft.blocked
+        ? `寻路遇阻：${draft.blockReason}`
+        : `已沿主干道规划路径（${draft.distanceTiles} 里），可继续补画或按 Enter 启程。`,
+      draft.blocked,
+    );
+  }, [state, evadeWar, zoom, notify, travelAnim]);
 
   const handleLaunchRoute = useCallback(() => {
-    if (!routeDraft || routeDraft.validPoints.length < 2) return;
-    const res = dispatch({ type: 'executeRoute', points: routeDraft.validPoints, evadeWar });
-    if (res.ok) setRouteDraft(null);
-  }, [routeDraft, dispatch, evadeWar]);
+    if (travelAnim || !routeDraft || routeDraft.validPoints.length < 2) return;
+    const points = routeDraft.validPoints.map(p => ({ ...p }));
+    const totalLen = polylineLength(points);
+    if (totalLen < 0.05) {
+      const res = dispatch({ type: 'executeRoute', points, evadeWar });
+      if (res.ok) setRouteDraft(null);
+      return;
+    }
+
+    const durationMs = Math.max(650, Math.min(2600, Math.round(totalLen * 44)));
+    const startMs = performance.now();
+
+    const step = (now: number) => {
+      const rawT = Math.min(1, (now - startMs) / durationMs);
+      const ease = rawT < 0.5
+        ? 2 * rawT * rawT
+        : 1 - Math.pow(-2 * rawT + 2, 2) / 2;
+      const dist = totalLen * ease;
+      const pos = samplePolylineAtDistance(points, dist);
+      const remainingPoints = slicePolylineFromDistance(points, dist);
+      setTravelAnim({ pos, remainingPoints });
+
+      if (rawT < 1) {
+        animRafRef.current = requestAnimationFrame(step);
+      } else {
+        animRafRef.current = null;
+        setTravelAnim(null);
+        const res = dispatch({ type: 'executeRoute', points, evadeWar });
+        if (res.ok) setRouteDraft(null);
+      }
+    };
+
+    setTravelAnim({ pos: points[0]!, remainingPoints: points });
+    animRafRef.current = requestAnimationFrame(step);
+  }, [travelAnim, routeDraft, dispatch, evadeWar]);
 
   const handleSave = async () => {
     const slimmed = await slimCircusAssets(state);
@@ -85,6 +152,7 @@ export function App() {
   };
 
   const handleLoadQuick = async () => {
+    stopTravelAnimation();
     const raw = await kvGet<string>(SAVE_CURRENT_KEY);
     if (!raw) {
       notify('尚未找到本地归档记录。', true);
@@ -111,7 +179,7 @@ export function App() {
     notify(`已补给 +${amount}，花费 ${cost} 金币。`);
   };
 
-  // 八方旅人全局键盘快捷键支持（1/2/3 切换视距、Enter 启程、Escape 逐层返回全图）
+  // 八方旅人全局键盘快捷键支持（Escape 仅关闭浮窗/弹窗，绝不误清空分次绘制的路线）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -119,8 +187,7 @@ export function App() {
       if (e.key === 'Escape') {
         if (modal) setModal(null);
         else if (page !== 'map') setPage('map');
-        else if (routeDraft) setRouteDraft(null);
-      } else if (e.key === 'Enter' && page === 'map' && !modal && routeDraft && routeDraft.validPoints.length >= 2) {
+      } else if (e.key === 'Enter' && page === 'map' && !modal && !travelAnim && routeDraft && routeDraft.validPoints.length >= 2) {
         e.preventDefault();
         handleLaunchRoute();
       } else if (!modal && page === 'map') {
@@ -131,7 +198,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [modal, page, routeDraft, handleLaunchRoute]);
+  }, [modal, page, travelAnim, routeDraft, handleLaunchRoute]);
 
   const activePerformer: Performer | undefined = modal?.type === 'performer'
     ? state.performers.find(p => p.id === modal.id)
@@ -141,11 +208,11 @@ export function App() {
 
   return (
     <div className="app-shell octo-shell">
-      {/* 第 0 层：永远全屏摊开在最底下的铜版画立体浮雕大地图 */}
       <CartographyView
         state={state}
         zoom={zoom}
         interactive={page === 'map' && !modal}
+        travelAnim={travelAnim}
         onZoom={setZoom}
         routeDraft={routeDraft}
         onRouteDraft={setRouteDraft}
@@ -155,7 +222,6 @@ export function App() {
         onAssistSketchTo={handleAssistSketchTo}
       />
 
-      {/* 第 1 层：当选单打开马车/物资/记录时，在地图中央展开半透明烟熏金框卷宗（底层地图依旧可见） */}
       {page !== 'map' && (
         <main id="main-stage" className="app-main octo-stage-overlay">
           <div id="main-stage-sheet" className="vellum-sheet">
@@ -194,16 +260,15 @@ export function App() {
         </main>
       )}
 
-      {/* 第 2 层：巴洛克星盘罗盘顶徽、四周鎏金刻度雕花边框与底部比例尺铭牌 */}
       <OrnateAtlasFrame regionName={activeRegion.name} scaleLabel={scaleLabel} />
 
-      {/* 第 3 层：左侧悬浮尖角炭褐选单横幅 */}
       <SideRail
         page={page}
         dirty={dirty}
         onPage={setPage}
         onSave={() => void handleSave()}
         onNewRandom={() => {
+          stopTravelAnimation();
           setRouteDraft(null);
           setPage('map');
           dispatch({ type: 'newGame', seed: Math.floor(Math.random() * 999_999) + 1 });
@@ -214,7 +279,6 @@ export function App() {
         unreadCount={state.logs.length > 0 ? Math.min(9, state.logs.length) : 0}
       />
 
-      {/* 第 4 层：右侧全高半透明烟熏墨色剧团状态与行军账房竖栏（透出底层海岸与山脉） */}
       <RightTroupeLedger
         state={state}
         dirty={dirty}
@@ -225,17 +289,20 @@ export function App() {
         onOpenScout={poi => setModal({ type: 'scout', poi })}
         onAssistSketchTo={handleAssistSketchTo}
         onCrossBorder={targetRegionId => {
+          stopTravelAnimation();
           const res = dispatch({ type: 'crossBorder', targetRegionId });
           if (res.ok) setRouteDraft(null);
         }}
       />
 
-      {/* 第 5 层：底部纯黑实体键帽操作提示栏 */}
       <HelmBar
         state={state}
         page={page}
         routeDraft={routeDraft}
-        onClearRoute={() => setRouteDraft(null)}
+        isTraveling={Boolean(travelAnim)}
+        onClearRoute={() => {
+          if (!travelAnim) setRouteDraft(null);
+        }}
         onLaunchRoute={handleLaunchRoute}
         onReturnMap={() => setPage('map')}
         onOpenGuide={() => setModal({ type: 'guide' })}

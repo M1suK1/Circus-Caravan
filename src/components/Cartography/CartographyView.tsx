@@ -53,6 +53,7 @@ export function CartographyView({
   state,
   zoom,
   interactive,
+  travelAnim,
   onZoom,
   routeDraft,
   onRouteDraft,
@@ -64,6 +65,7 @@ export function CartographyView({
   state: CircusState;
   zoom: MapZoomMode;
   interactive: boolean;
+  travelAnim?: { pos: { x: number; y: number }; remainingPoints: { x: number; y: number }[] } | null;
   onZoom: (mode: MapZoomMode) => void;
   routeDraft: RouteEvaluation | null;
   onRouteDraft: (draft: RouteEvaluation | null) => void;
@@ -81,6 +83,7 @@ export function CartographyView({
 
   const region = state.world.regions[state.world.currentRegionId];
   const map = region.map;
+  const displayPos = travelAnim?.pos ?? state.world.pos;
 
   const [camera, setCamera] = useState<Required<RegionCamera>>(() => ({
     zoomScale: 1,
@@ -89,7 +92,6 @@ export function CartographyView({
   }));
   const [followLocked, setFollowLocked] = useState<boolean>(zoom === 'follow');
 
-  // 预设层级切换或跨区时同步相机倍率与跟随锁定
   useEffect(() => {
     setFocusedPoiId(null);
     if (zoom === 'region') {
@@ -109,16 +111,16 @@ export function CartographyView({
     }
   }, [zoom, state.world.currentRegionId, state.world.seed]);
 
-  // 车队移动后，若处于跟随状态则相机自动平滑锚定大篷车新位置
+  // 马车平滑行驶动画或静止落位时，若开启车队锁定则镜头同步平滑跟随
   useEffect(() => {
     if (followLocked && zoom !== 'world') {
       setCamera(prev => ({
         ...prev,
-        centerX: state.world.pos.x,
-        centerY: state.world.pos.y,
+        centerX: displayPos.x,
+        centerY: displayPos.y,
       }));
     }
-  }, [state.world.pos.x, state.world.pos.y, followLocked, zoom]);
+  }, [displayPos.x, displayPos.y, followLocked, zoom]);
 
   const loadedCount = useMemo(
     () => REGION_IDS.filter(id => Boolean(state.world.regions[id].map)).length,
@@ -130,7 +132,7 @@ export function CartographyView({
     setCamera(updater);
   }, []);
 
-  const sketch = useRouteSketch(state, zoom, evadeWar, onRouteDraft, handlePanCamera);
+  const sketch = useRouteSketch(state, zoom, evadeWar, routeDraft, onRouteDraft, handlePanCamera);
 
   const syncAndRender = useCallback(() => {
     const canvas = canvasRef.current;
@@ -144,10 +146,10 @@ export function CartographyView({
       canvas.width = w;
       canvas.height = h;
     }
-    const vp = renderCartographyCanvas(canvas, state, zoom, routeDraft, camera);
+    const vp = renderCartographyCanvas(canvas, state, zoom, routeDraft, camera, travelAnim ?? undefined);
     vpStateRef.current = vp;
     sketch.setViewport(vp);
-  }, [state, zoom, routeDraft, camera, sketch]);
+  }, [state, zoom, routeDraft, camera, travelAnim, sketch]);
 
   useEffect(() => {
     syncAndRender();
@@ -169,8 +171,8 @@ export function CartographyView({
       setFollowLocked(true);
       setCamera({
         zoomScale: 1.6,
-        centerX: state.world.pos.x,
-        centerY: state.world.pos.y,
+        centerX: displayPos.x,
+        centerY: displayPos.y,
       });
       return;
     }
@@ -199,10 +201,11 @@ export function CartographyView({
   };
 
   const currentTerrain = map
-    ? regionTerrainAt(map, Math.floor(state.world.pos.x), Math.floor(state.world.pos.y))
+    ? regionTerrainAt(map, Math.floor(displayPos.x), Math.floor(displayPos.y))
     : 'wasteland';
 
   const focusedPoi = focusedPoiId && map ? map.pois[focusedPoiId] : undefined;
+  const canDraw = interactive && !travelAnim;
 
   return (
     <div id="octo-atlas-underlay" className={`octo-atlas-underlay ${interactive ? '' : 'dimmed'}`}>
@@ -214,13 +217,13 @@ export function CartographyView({
           onContextMenu={e => e.preventDefault()}
           onWheel={handleWheel}
           onPointerDown={e => {
-            if (!interactive) return;
+            if (!canDraw) return;
             downClientRef.current = { x: e.clientX, y: e.clientY, button: e.button };
             sketch.onPointerDown(e);
           }}
           onPointerMove={e => {
             if (!interactive) return;
-            sketch.onPointerMove(e);
+            if (!travelAnim) sketch.onPointerMove(e);
             if (map && zoom !== 'world') {
               const pt = sketch.toMapPoint(e.clientX, e.clientY, e.currentTarget);
               if (pt) {
@@ -242,7 +245,7 @@ export function CartographyView({
           }}
           onPointerLeave={() => setCursorLabel('')}
           onPointerUp={e => {
-            if (!interactive) return;
+            if (!canDraw) return;
             sketch.onPointerUp(e);
             const start = downClientRef.current;
             downClientRef.current = null;
@@ -258,7 +261,7 @@ export function CartographyView({
                   poi => isSettlementRevealed(map, poi, state.world.pos) && Math.hypot(poi.x + 0.5 - pt.x, poi.y + 0.5 - pt.y) <= 3.6,
                 );
                 if (hit) {
-                  onRouteDraft(null);
+                  sketch.restorePreStrokeDraft();
                   setFocusedPoiId(hit.id);
                 }
               }
@@ -288,8 +291,8 @@ export function CartographyView({
                   setFollowLocked(false);
                   setCamera({
                     zoomScale: 1,
-                    centerX: map ? map.width / 2 : state.world.pos.x,
-                    centerY: map ? map.height / 2 : state.world.pos.y,
+                    centerX: map ? map.width / 2 : displayPos.x,
+                    centerY: map ? map.height / 2 : displayPos.y,
                   });
                 }}
               >
@@ -305,15 +308,14 @@ export function CartographyView({
                   setFollowLocked(true);
                   setCamera({
                     zoomScale: FOLLOW_DEFAULT_ZOOM,
-                    centerX: state.world.pos.x,
-                    centerY: state.world.pos.y,
+                    centerX: displayPos.x,
+                    centerY: displayPos.y,
                   });
                 }}
               >
                 <LocateFixed size={12} /><span>3 · 跟随车队</span>
               </button>
 
-              {/* 连续无级缩放控制组（滚轮 / 加减按钮 / 一键回正车队） */}
               <div className="octo-zoom-stepper" role="group" aria-label="疆域地图无级缩放倍率">
                 <button
                   id="map-zoom-out"
@@ -336,8 +338,8 @@ export function CartographyView({
                     setFollowLocked(true);
                     setCamera(prev => ({
                       zoomScale: Math.max(2.2, prev.zoomScale),
-                      centerX: state.world.pos.x,
-                      centerY: state.world.pos.y,
+                      centerX: displayPos.x,
+                      centerY: displayPos.y,
                     }));
                   }}
                 >
@@ -395,7 +397,7 @@ export function CartographyView({
                     className="btn sm"
                     onClick={() => onAssistSketchTo(focusedPoi.x, focusedPoi.y)}
                   >
-                    <Route size={11} />引线前往
+                    <Route size={11} />沿主道寻路
                   </button>
                   <button
                     id="popover-scout-btn"
@@ -413,8 +415,8 @@ export function CartographyView({
               <div className="octo-coord-strip">
                 <MapPin size={12} />
                 <span>
-                  {region.name} ({Math.floor(state.world.pos.x)},{Math.floor(state.world.pos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
-                  {zoom !== 'world' ? ' · 滚轮缩放 / 右键拖移' : ''}
+                  {region.name} ({Math.floor(displayPos.x)},{Math.floor(displayPos.y)}) · {TERRAIN_CN[currentTerrain]} · 已展疆域 {loadedCount}/9
+                  {zoom !== 'world' ? ' · 支持分次续画 / 滚轮缩放 / 右键拖移' : ''}
                   {cursorLabel ? ` ｜ 光标 ${cursorLabel}` : ''}
                 </span>
               </div>

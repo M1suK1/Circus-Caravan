@@ -231,3 +231,57 @@ export function evaluateRouteStroke(
     avgSpeedMultiplier: sampleCount ? Number((speedSum / sampleCount).toFixed(2)) : 1,
   };
 }
+
+/** 计算多段折线的总欧氏长度（单位：地图格） */
+export function polylineLength(points: readonly { x: number; y: number }[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return total;
+}
+
+/** 按指定弧长距离沿折线精确线性插值，返回动画当前车队坐标 */
+export function samplePolylineAtDistance(
+  points: readonly { x: number; y: number }[],
+  distance: number,
+): { x: number; y: number } {
+  if (points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1 || distance <= 0) return { ...points[0]! };
+  let acc = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+    if (acc + seg >= distance && seg > 1e-9) {
+      const t = (distance - acc) / seg;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    acc += seg;
+  }
+  return { ...points[points.length - 1]! };
+}
+
+/** 从指定弧长处截断已走过的折线前缀，返回剩余待绘制的路线点列 */
+export function slicePolylineFromDistance(
+  points: readonly { x: number; y: number }[],
+  distance: number,
+): { x: number; y: number }[] {
+  if (points.length <= 1 || distance <= 0) return points.map(p => ({ ...p }));
+  let acc = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+    if (acc + seg > distance && seg > 1e-9) {
+      const t = (distance - acc) / seg;
+      const cur = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      return [cur, ...points.slice(i).map(p => ({ ...p }))];
+    }
+    acc += seg;
+  }
+  const last = points[points.length - 1]!;
+  return [{ ...last }];
+}

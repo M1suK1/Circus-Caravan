@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { evaluateRouteStroke } from '../../domain/routeDraw.ts';
 import type { CircusState, MapZoomMode, RouteEvaluation } from '../../types.ts';
 import { canvasPxToMap, type RegionCamera, type ViewportTransform } from './mapRenderer.ts';
@@ -7,14 +7,23 @@ export function useRouteSketch(
   state: CircusState,
   zoom: MapZoomMode,
   evadeWar: boolean,
+  routeDraft: RouteEvaluation | null,
   onDraftChange: (draft: RouteEvaluation | null) => void,
   onPanCamera?: (updater: (prev: Required<RegionCamera>) => Required<RegionCamera>) => void,
 ) {
   const [drawing, setDrawing] = useState(false);
   const [panning, setPanning] = useState(false);
   const strokeRef = useRef<{ x: number; y: number }[]>([]);
+  const preStrokeDraftRef = useRef<RouteEvaluation | null>(null);
   const vpRef = useRef<ViewportTransform | null>(null);
   const panAnchorRef = useRef<{ clientX: number; clientY: number; vp: ViewportTransform } | null>(null);
+
+  // 仅当外部明确将 routeDraft 置空（如点击「擦除墨线」、启程或跨区）时才清空笔迹缓存
+  useEffect(() => {
+    if (!routeDraft) {
+      strokeRef.current = [];
+    }
+  }, [routeDraft]);
 
   const setViewport = useCallback((vp: ViewportTransform) => {
     vpRef.current = vp;
@@ -45,6 +54,12 @@ export function useRouteSketch(
     [state, evadeWar],
   );
 
+  const restorePreStrokeDraft = useCallback(() => {
+    const prev = preStrokeDraftRef.current;
+    strokeRef.current = prev ? [...prev.validPoints] : [];
+    onDraftChange(prev);
+  }, [onDraftChange]);
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (zoom === 'world') return;
 
@@ -62,8 +77,19 @@ export function useRouteSketch(
     if (!pt) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrawing(true);
-    strokeRef.current = [{ x: state.world.pos.x, y: state.world.pos.y }, pt];
-    onDraftChange(evaluate(strokeRef.current));
+
+    preStrokeDraftRef.current = routeDraft;
+    // 支持分多次续画：已有有效路线时从 validPoints 末端继续延伸（自动剔除上次失效红尾）
+    const basePoints = routeDraft && routeDraft.validPoints.length >= 2
+      ? routeDraft.validPoints.map(p => ({ ...p }))
+      : [{ x: state.world.pos.x, y: state.world.pos.y }];
+    const tail = basePoints[basePoints.length - 1]!;
+    strokeRef.current = Math.hypot(pt.x - tail.x, pt.y - tail.y) < 0.45
+      ? basePoints
+      : [...basePoints, pt];
+    if (strokeRef.current.length >= 2) {
+      onDraftChange(evaluate(strokeRef.current));
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -114,8 +140,20 @@ export function useRouteSketch(
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    onDraftChange(evaluate(strokeRef.current));
+    if (strokeRef.current.length >= 2) {
+      onDraftChange(evaluate(strokeRef.current));
+    }
   };
 
-  return { drawing, panning, setViewport, toCanvasPx, toMapPoint, onPointerDown, onPointerMove, onPointerUp };
+  return {
+    drawing,
+    panning,
+    setViewport,
+    toCanvasPx,
+    toMapPoint,
+    restorePreStrokeDraft,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+  };
 }

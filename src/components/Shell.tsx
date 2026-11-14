@@ -347,9 +347,10 @@ export function RightTroupeLedger({
                   id={`assist-route-${poi.id}`}
                   type="button"
                   className="octo-inline-action"
+                  title="沿主干道自动寻路前往此处"
                   onClick={() => onAssistSketchTo(poi.x, poi.y)}
                 >
-                  <Route size={10} />引线
+                  <Route size={10} />寻路
                 </button>
                 <button
                   id={`scout-list-${poi.id}`}
@@ -383,9 +384,10 @@ export function RightTroupeLedger({
                   id={`assist-gate-${gate.targetRegionId}`}
                   type="button"
                   className="octo-inline-action"
+                  title="沿主干道自动寻路至边境关口"
                   onClick={() => onAssistSketchTo(gate.x, gate.y)}
                 >
-                  引线
+                  寻路
                 </button>
               ) : (
                 <span className="octo-fog-tag">未探明</span>
@@ -442,6 +444,7 @@ export function HelmBar({
   state,
   page,
   routeDraft,
+  isTraveling,
   onClearRoute,
   onLaunchRoute,
   onReturnMap,
@@ -450,6 +453,7 @@ export function HelmBar({
   state: CircusState;
   page: AppPage;
   routeDraft: RouteEvaluation | null;
+  isTraveling?: boolean;
   onClearRoute: () => void;
   onLaunchRoute: () => void;
   onReturnMap: () => void;
@@ -475,7 +479,7 @@ export function HelmBar({
           </span>
         ) : (
           <span>
-            请选择选单项目，或在舆图上拖拽绘制路线 · 当前：<b>{region.name}</b>（{Math.floor(state.world.pos.x)}, {Math.floor(state.world.pos.y)}）· {poiLabel}
+            可分多次续画路线，点「擦除墨线」重置 · 当前：<b>{region.name}</b>（{Math.floor(state.world.pos.x)}, {Math.floor(state.world.pos.y)}）· {poiLabel}
           </span>
         )}
       </div>
@@ -483,17 +487,23 @@ export function HelmBar({
       <div className="helm-controls">
         {routeDraft && routeDraft.distanceTiles > 0 && (
           <>
-            <button id="route-clear-btn" type="button" className="octo-bar-action" onClick={onClearRoute}>
+            <button
+              id="route-clear-btn"
+              type="button"
+              className="octo-bar-action"
+              disabled={Boolean(isTraveling)}
+              onClick={onClearRoute}
+            >
               擦除墨线
             </button>
             <button
               id="route-launch-btn"
               type="button"
               className="octo-bar-action primary"
-              disabled={routeDraft.validPoints.length < 2}
+              disabled={Boolean(isTraveling) || routeDraft.validPoints.length < 2}
               onClick={onLaunchRoute}
             >
-              沿线启程
+              {isTraveling ? '车队行进中…' : '沿线启程'}
             </button>
           </>
         )}
